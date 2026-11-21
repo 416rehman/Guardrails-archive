@@ -47,9 +47,9 @@ Top-level directories follow `design/03` section 11. This table fixes everything
 | Path | Content | Squad | Protected |
 |---|---|---|---|
 | `AGENTS.md`, `CLAUDE.md` | Map for every agent session; Claude Code additions (sections 3 and 4) | agent-kit | Yes, trust core |
-| `LICENSE`, `NOTICE`, `COVENANT.md`, `GOVERNANCE.md`, `CONTRIBUTING.md`, `AI_POLICY.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md`, `MAINTAINERS.md`, `ADOPTERS.md`, `TRADEMARKS.md` | Texts from `design/30` sections 13 to 16 and `design/35`; trademark text from `design/36` | security | Yes |
+| `LICENSE`, `docs/LICENSE*`, `NOTICE`, `COVENANT.md`, `GOVERNANCE.md`, `CONTRIBUTING.md`, `AI_POLICY.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md`, `MAINTAINERS.md`, `ADOPTERS.md`, `TRADEMARKS.md` | Texts from `design/30` sections 13 to 16 and `design/35`; trademark text from `design/36` | security | Yes |
 | `REVIEW.md` and `*/REVIEW.md` | "What failure looks like here" per area; reviewers read it from the base branch only | Area squad | Yes |
-| `Cargo.toml`, `Cargo.lock`, `rust-toolchain.toml`, `.cargo/config.toml`, `deny.toml`, `clippy.toml`, `rustfmt.toml` | Workspace, the no-panic workspace lints (owner instruction 15), pins, lint and dependency policy | core, release | Yes, trust core |
+| `Cargo.toml`, `Cargo.lock`, `rust-toolchain.toml`, `.cargo/config.toml`, `deny.toml`, `deny.*.toml`, `clippy.toml`, `rustfmt.toml` | Workspace, the no-panic workspace lints (owner instruction 15), pins, lint and dependency policy | core, release | Yes, trust core |
 | `architecture.toml`, `surfaces.toml`, `support.toml`, `limits.toml`, `dist.toml` | Gate data the planned architecture lint reads (`design/03`); `dist.toml` is written by the packaging work item | core (`dist.toml`: release) | Yes, trust core |
 | `release-please-config.json`, `.release-please-manifest.json`, `release/VERSION` | release-please configuration: component versions, the product version and changelogs (owner instruction 3; `design/24` section 10) | release | Yes, trust core |
 | `buf.yaml`, `buf.gen.yaml`, `proto/grdr/**` | Protobuf packages `grdr.*.v1alpha1` | core | No; high tier, RFC to change (D-61) |
@@ -116,8 +116,10 @@ architecture.toml
 audits/**
 brand/**
 conformance/vectors/**
+deny.*.toml
 deny.toml
 dist.toml
+docs/LICENSE*
 docs/PLAN.md
 docs/agents/status/**
 docs/decisions/**
