@@ -84,22 +84,23 @@ Top-level directories follow `design/03` section 11. This table fixes everything
 
 The main repository is `416rehman/Guardrails` on the owner's personal GitHub account; there is no organisation and no GitHub Project (owner instruction 5). The Cargo namespace stays `grdr` (D-66). The other repositories are created under the same account only when the work that needs each one starts: `grdr-content` (packs, rules, fingerprints, adapter manifests; the open lane), `grdr-contrib` (community adapters), `grdr-heldout` (held-out suite, private, behind the evaluator service, D-45), `audit-bench` (`team/04`, private). Their names change with the namespace under D-66; GitHub keeps redirects.
 
-**Protected paths.** This list is the single list of protected paths: an ordinary issue changes none of them, and a change to one is its own issue whose write set names it (`team/05` section 5, D-63). The evaluators check every diff against it, and the write-set job of #1668 reads this block from the base commit. One glob per line, relative to the repository root:
+**Protected paths.** This list is the single list of protected paths: an ordinary issue changes none of them, and a change to one is its own issue whose write set names it (`team/05` section 5, D-63). The evaluators check every diff against it, and the write-set job of #1668 reads this block from the base commit; a missing or empty block fails both closed. One glob per line, relative to the repository root. `**/` matches zero or more folders, so `**/AGENTS.md` also names the root `AGENTS.md`; `*` matches within one folder; matching ignores case:
 
 ```text
 **/*.snap
-**/__screenshots__/**
+**/.claude/**
 **/AGENTS.md
 **/CHANGELOG.md
+**/CLAUDE.local.md
+**/CLAUDE.md
 **/REVIEW.md
+**/__screenshots__/**
 **/clippy.toml
 .cargo/**
-.claude/**
 .github/**
 .release-please-manifest.json
 ADOPTERS.md
 AI_POLICY.md
-CLAUDE.md
 CODE_OF_CONDUCT.md
 CONTRIBUTING.md
 COVENANT.md
