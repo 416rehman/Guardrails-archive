@@ -78,7 +78,7 @@ Top-level directories follow `design/03` section 11. This table fixes everything
 | `docs/architecture/`, `docs/crates/`, `docs/extending/`, `docs/release/` | Layer and port guides; per-crate design notes; contributor how-tos; re-sign runbook | core, docs owners | No |
 | `docs/team/` | `team/01` to `team/06` | agent-kit | Yes |
 | `docs/agents/status/`, `docs/agents/templates/` | The bootstrap records; the crate `AGENTS.md`, decision-record and specification templates. The work items themselves, with their spec, plan, acceptance criteria and discussion, are GitHub issues (section 7) and never files (owner instruction 5) | Chief architect | `status/` yes |
-| `.claude/` | The agent team: `agents/*.md` (one file per role, edited by hand), `skills/` (the `grdr-` skills, `grdr-work-issue` among them), `settings.json`, `risk-tiers.toml`, `owners.toml` | agent-kit | `settings.json` and `hooks/`; all of it trust core |
+| `.claude/` | The agent team: `agents/*.md` (one file per role, edited by hand), `skills/` (the `grdr-` skills, `grdr-work-issue` among them), `settings.json`, `risk-tiers.toml`, `owners.toml` | agent-kit | Yes, trust core |
 | `.github/` | `ISSUE_TEMPLATE/` (the work-item form `work-item.yml` and the intake forms), `labels.toml`, `dependabot.yml`, `CODEOWNERS` (generated), `rulesets/`, `workflows/` | agent-kit | Yes, trust core |
 | `.agent/` | Per-session scratch and worktrees; in `.gitignore` | Any session | No |
 
@@ -94,8 +94,7 @@ The main repository is `416rehman/Guardrails` on the owner's personal GitHub acc
 **/REVIEW.md
 **/clippy.toml
 .cargo/**
-.claude/hooks/**
-.claude/settings.json
+.claude/**
 .github/**
 .release-please-manifest.json
 ADOPTERS.md

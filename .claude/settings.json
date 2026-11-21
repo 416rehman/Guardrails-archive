@@ -210,7 +210,6 @@
   },
   "sandbox": {
     "allowUnsandboxedCommands": false,
-    "enabled": false,
     "filesystem": {
       "denyRead": [
         "~/.ssh",

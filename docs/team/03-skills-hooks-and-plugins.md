@@ -25,7 +25,7 @@ The team uses plain Claude Code: subagents in `.claude/agents/`, skills in `.cla
 | `permissions.defaultMode` | `bypassPermissions`. Claude Code does not start a session in this mode from project settings, so the owner starts the orchestrating session with `claude --permission-mode bypassPermissions`; subagents set no `permissionMode` and run in the session's mode. A contributor's clone keeps the mode its user chose |
 | `permissions.deny` | Empty, and there is no `permissions.ask`: no session rule refuses or asks (ADR-0035) |
 | `hooks` | One PreToolUse hook on Bash and PowerShell, `.claude/hooks/docs-check.mjs`: a dependency-free Node script that holds `gh pr create` and `gh pr merge` until the design/34 docs rules a script can check pass (docs change with code or the body says `Docs: unchanged because <reason>`, the `[release_note]` block, page front matter, no third-party requests or `curl \| sh` on the site). It lets the command through on its own errors |
-| `sandbox` | `enabled: false`; its other keys stay and have no effect |
+| `sandbox` | `enabled` is not set, so the project neither turns the sandbox on nor off and each user's own settings decide (the owner's turn it off); the other keys apply only where a user turns it on |
 | `autoMemoryEnabled`, `disableAutoMode` | `false`, `disable` |
 
 The repository ships no `PermissionRequest` hook: it would strip the prompts from every contributor who clones the repository. The owner's own sessions answer permission requests from their local, gitignored `.claude/settings.local.json` (ADR-0035).
