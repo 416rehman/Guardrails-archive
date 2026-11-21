@@ -69,7 +69,7 @@ The constraints:
 ### 0. Threat statement
 - **What the drift test is for.** It catches accidental drift between four things: the Rust exports and `#[repr(C)]` types, the committed header and its layout source, the header's listed contract, and the status registry. It checks them in three places: in the build `cargo test` makes, in the release test build, and through checks the library compiles in every build, in each profile and for each target the header's row names.
 
-  "Accidental" means a change made in good faith that leaves one of them behind. Examples are a parameter type changed in Rust only, a field added without the descriptor, a hand edit of the header, a value moved in the registry, a field that exists only in the release build, or a test that stopped checking. An agent's mistake is accidental.
+  "Accidental" means a change made in good faith that leaves one of them behind. Examples are a parameter type changed in Rust only, a field added without the descriptor, a hand edit of the header, a value moved in the registry, a field that exists only in one build configuration, or a test that stopped checking. An agent's mistake is accidental.
 - **What it is not for.** A hostile writer of `tests/header_drift.rs`, of the crate's `src/` or of its manifest can make the drift test pass while the header is wrong. The descriptor is that writer's own statement, and the test runs code that writer controls.
 
   Nothing in this RFC claims otherwise. The hardening of section 5 catches accident and obvious misuse, not intent. That hardening is private fields on the descriptor's records, a test the testkit writes, and no paths or environment taken from the test.
@@ -180,6 +180,7 @@ A missing or unreadable input is a failure of the check that reads it, never a s
 Rules the checks rest on:
 - **Every build of the library checks itself.** `src/<file>_abi.rs` holds, under `#[cfg(target_pointer_width = "64")]`, a size, alignment and offset assert for every struct of the 64-bit model. It also holds a `compile_error!` on any other pointer width, and a `const` coercion of every export to the signature the descriptor states.
   - Every profile, feature set and target that builds the library compiles these checks: the embedded profile with `panic = "abort"`, a feature only a test build turns on through a dev-dependency, an aarch64 target. So a layout or signature that differs there stops that build (eval-adversarial round 4's blocker; the sketch's seed P1).
+  - Each assert carries a message naming the header, the item and the next step, such as `"grdr_fastpath.h: grdr_fp_input.label_bits moved; bless as the header's banner says"`, so the first error a developer meets says what to do.
   - The library therefore does not build for a 32-bit target, `wasm32` among them, until that target's checks exist (section 11).
   - The module sits behind `#[cfg(not(grdr_bless))]`, so a bless can build the library while the checks are stale. Only the bless command sets `grdr_bless`, and each FFI crate's `Cargo.toml` declares it under `[lints.rust] unexpected_cfgs`. `c-headers` step 1 fails when the repository's Cargo configuration or the job's environment sets it.
 - **Every build of the test.** The descriptor's own checks (D1 to D4, D11, `HDR-1`) compile into the test, so `c-headers` runs the test twice: as `cargo test` builds it, and as `cargo test --release` with the row's `features`. Step 5 also type-checks it for every shipped target. A field or parameter under `#[cfg(not(debug_assertions))]` is then seen (eval-security C1 and C2), and so is a `c_char` signature that changes with the target (seed T1).
@@ -328,11 +329,11 @@ Section 3 gains the matching block for `grdr.h` (`GRDR_ABI_MAJOR`, `GRDR_ABI_MIN
 - **Compatibility across releases.** Within a major, declarations are only added and input structs only grow trailing fields (D-71; design/03 section 7). #1771 builds that check; section 11 makes it a gate.
 - **A run-time version mismatch.** No product program loads a library through these headers. The daemon links `grdr-fastpath` from Rust (design/26 section 2), and the sidecar is a Rust binary. A partner's host applies section 9's rule. If a product program ever loads one, it reports a mismatch as a health condition, never as a tamper finding. It gets a registered code, a runbook, and a `grdr doctor` line naming both versions and the component to upgrade. That program's item adds the code.
 - **Signedness of an enum whose values are all non-negative.** D4 catches a wrong signedness only through a negative value. Every value is the same in either type, so C reads it the same.
-- **`#[repr(C)]` itself.** A type that crosses in a described signature without `#[repr(C)]` fails the drift test's build: `c_fn!`'s foreign declaration trips rustc's `improper_ctypes` lint, which the workspace denies. That is the sketch's s12. `HDR-1`, the library's generated asserts and the layout source then hold the layout of every `#[repr(C)]` type.
+- **`#[repr(C)]` itself.** A type that crosses in a described signature without `#[repr(C)]` fails the library's build with E0080 when Rust lays it out differently from C, which is the sketch's s12. Where the two layouts happen to agree, `c_fn!`'s foreign declaration trips rustc's `improper_ctypes` lint. It warns by default, so it fails in the clippy gate, under `-D warnings`, not in `cargo test`; the workspace's lint table sets only `unsafe_code`. `HDR-1`, the library's generated asserts and the layout source then hold the layout of every `#[repr(C)]` type.
 - **Whether a data class is right.** The contract states each field's class and encoding, and `HDR-3` holds the descriptor to it. The C structs have no proto message that states them, so whether the contract's class is the right one is review of the contract, a protected change.
 - **A target or profile the row does not list.** Step 5 checks exactly the row's lists. A build for anything else still compiles the library's own checks, so a layout or signature that differs there fails that build. Only the drift test's own checks (D1 to D4) do not run there before release.
 
-Data classes (P8): the check reads source, interface text, the header list and registry files, all `structural`. It logs nothing at run time and adds no field to any message. The contract and the headers now state each field's class; that documents classes the wire types already carry and adds none. Assurance effect (P1): none. No action class changes `visibility`, `control`, `on_failure` or `tamper`.
+Data classes (P8): the check reads source, interface text, the header list and registry files, all `structural`. It logs nothing at run time and adds no field to any message. The contract and the headers now state each field's class. Nothing compares those classes with the wire types' own; review of the contract holds them (section 10). Assurance effect (P1): none. No action class changes `visibility`, `control`, `on_failure` or `tamper`.
 
 ### 11. Stability
 - The headers share the class of their C ABI, which their `surfaces.toml` row records: experimental until one external embed pilot completes (D-60). A change to the renderer that changes any header's text is an amendment that names RFC 0004 and regenerates every header in one change.
@@ -369,7 +370,7 @@ The testkit's 30 seeded unit tests pass on both.
 | Clean tree after the bless (both) | pass, passes |
 | s1 a parameter type changed in Rust | fail, E0308 at the descriptor line |
 | s2, s2b the header or the layout source edited by hand | fail, `HDR-2` |
-| s3 a field added in Rust | fail, pattern requires `..` |
+| s3 a field added in Rust | fail at build: E0080 from the library's generated assert, which builds before the test; D2's "pattern requires `..`" stands behind it |
 | s4 a field type changed in Rust | fail, E0308 |
 | s5 two fields swapped in Rust | fail, `HDR-1` |
 | s6 an export added without the descriptor | fail, `HDR-5` (early warning; `c-headers` step 4 is the guarantee) |
@@ -379,7 +380,7 @@ The testkit's 30 seeded unit tests pass on both.
 | s9b ... then described and blessed, contract unchanged | fail, `HDR-2`, `HDR-3` |
 | s10 the ABI minor bumped in Rust only | fail, `HDR-2`, `HDR-3` |
 | s11 the version function returns a literal | fail, `HDR-4` |
-| s12 `#[repr(C)]` removed from `grdr_fp_verdict` | fail at build: `improper_ctypes` on `c_fn!`'s foreign declaration ("`extern` block uses type `grdr_fp_verdict`") |
+| s12 `#[repr(C)]` removed from `grdr_fp_verdict` | fail at build: E0080 from the library's generated assert, because Rust lays the struct out differently |
 | s13 the header removed | fail, `HDR-2` |
 | s14 an offset stated in `c-abi.md` changed | fail, `HDR-3` |
 | s15 a `build.rs` added | fail, `HDR-5` |
@@ -399,8 +400,8 @@ The testkit's 30 seeded unit tests pass on both.
 | m1 a status variant added in Rust (`grdr_macos.h`) | fail, E0004 |
 | m2 the `i32` enum described as `u32` (`grdr_macos.h`) | fail, `HDR-1`, `HDR-2`, `HDR-3` |
 | m3 a contract declaration changed (`grdr_macos.h`) | fail, `HDR-3` |
-| C1 a field of `grdr_fp_verdict` under `#[cfg(not(debug_assertions))]` | fail in the release build: pattern requires `..` |
-| C2 a parameter of `grdr_fp_arena_size` under `#[cfg(not(debug_assertions))]` | fail in the release build: E0308 |
+| C1 a field of `grdr_fp_verdict` under `#[cfg(not(debug_assertions))]` | fail in the `--release` build: E0080 from the library's generated assert |
+| C2 a parameter of `grdr_fp_arena_size` under `#[cfg(not(debug_assertions))]` | fail in the `--release` build: E0308 |
 | The negative control on the clean tree | passes: the one-byte change fails the test with `HDR-2` |
 | N1 a hand-written `header_drift` that checks nothing | passes the test; the negative control fails, so `c-headers` step 2 fails |
 | The embedded and cross-target builds of the clean tree (both crates) | pass, pass on all six targets |
@@ -411,7 +412,8 @@ The testkit's 30 seeded unit tests pass on both.
 Not yet in the sketch:
 - the `c-headers` job itself. The sketch runs its step 2 and step 5 rules (both builds, the negative control, the shipped configurations) through `build.sh`, but not through Cargo. Step 1's `cargo metadata` reading and step 4's export tables are specified for #1779 and #1784 with seeded failures, and were not run here;
 - the rows' `profiles`, `features` and `targets`: `build.sh` checks both stand-ins for all six targets, more than the macOS row would list;
-- the contract's data-class brackets and `HDR-3`'s check of them (seed D1 of eval-adversarial round 4, for #1778). The hostile-writer seeds of eval-security and eval-adversarial round 3 are not claimed as caught (section 0).
+- the contract's data-class brackets and `HDR-3`'s check of them (seed D1 of eval-adversarial round 4, for #1778);
+- the messages of the generated asserts, which the sketch renders without one. The hostile-writer seeds of eval-security and eval-adversarial round 3 are not claimed as caught (section 0).
 
 ### 13. Mechanisms
 Every row below holds against accidental drift. The rows marked *hostile* are also the controls section 0 names against a hostile writer.
@@ -419,7 +421,7 @@ Every row below holds against accidental drift. The rows marked *hostile* are al
 | Decision | Mechanism | Built by |
 |---|---|---|
 | The committed files are the rendering of their descriptor and the registry | `HDR-2` in each crate's `header_drift` test | The testkit item; #418, #388, #247 |
-| Every listed drift test runs, checks, and sees the release build | `c-headers` step 2: each test by name in both builds, exactly one passed each time, and the one-byte negative control | #1779 |
+| Every listed drift test runs, checks, and sees the `cargo test --release` build | `c-headers` step 2: each test by name in both builds, exactly one passed each time, and the one-byte negative control | #1779 |
 | The descriptor matches the Rust items | D1 to D4 at compile time, in both builds; `c_status!` names (D10); `compile_fail` doctests in the testkit for each, and in `grdr-fastpath-ffi` one that describes `grdr_fp_arena_size` with a wrong parameter type (#418 AC-5's seeded change) | The testkit item; #418 |
 | A C type stands for the Rust type at its position | D6: closed construction and `TypeId` at every node, `HDR-1` | The testkit item |
 | Every declared export exists and is the item described | D11: the foreign declaration (link) and the address comparison (`HDR-5`) | The testkit item |
@@ -432,10 +434,10 @@ Every row below holds against accidental drift. The rows marked *hostile* are al
 | Each field's data class and encoding has one source | The contract's bracket per field; `HDR-3` | The testkit item; #246 |
 | The crate's manifest does not move or switch off what is checked | `HDR-5` by lines; `c-headers` step 1 through `cargo metadata` | The testkit item; #1779 |
 | Spellings, layout, encodings, data classes, enum positions | `HDR-1` on every system `plan` selects; the macro syntax for data classes; `HDR-3` for the classes the contract states; D9 | The testkit item |
-| `#[repr(C)]` on every type in a described signature | `improper_ctypes`, denied, on `c_fn!`'s foreign declaration | The testkit item; the workspace lints |
+| `#[repr(C)]` on every type in a described signature | The library's generated asserts (E0080) where the Rust layout differs; rustc's `improper_ctypes` on `c_fn!`'s foreign declaration, an error under the clippy gate's `-D warnings` | The testkit item; the clippy gate |
 | A C compiler accepts every header and its layout | `c-headers` step 3. gcc and clang on every pull request; MSVC and Apple clang from the dispatched run on the head | #1779 |
 | The header matches its listed contract | `HDR-3`; the `[[c_header]]` rows; section 2.4 in `c-abi.md` | The testkit item; the `surfaces.toml` item; #246 |
-| The contract and the header list stay out of the writer's reach (*hostile*) | Review under ADR-0035: the protected-path list of `team/06` section 2.1, the evaluators' write-set check, `eval-security` and a second model; #1668's write-set job; their tiers; `rfc-required` once #1741 lands | #1668, #1741, both pending |
+| The contract and the header list change only through a protected change (*hostile*) | Today review alone, under ADR-0035: the protected-path list of `team/06` section 2.1, the evaluators' write-set check, `eval-security` and a second model, and their tiers. CI adds #1668's write-set job and `rfc-required` (#1741) when they land | Review now; #1668 and #1741, both open |
 | Descriptor and source changes are reviewed as trust core (*hostile*) | `eval-security`, `eval-adversarial` and two evaluators on different models for `crates/grdr-fastpath-ffi/**` and `crates/grdr-ffi/**`; the high tier for the testkit and for every crate's descriptor, `include/` and generated checks | `security/trust-core.paths`; #1777 |
 | Accident and obvious misuse of the descriptor's records and test | Private fields on `Header`, `Function` and `Struct`; `drift_test!`; no `Paths` or `Env` from the test | The testkit item |
 | One status block for both C ABI headers | `content::grdr_status`; a seeded unit test rendering two headers | The testkit item |
@@ -594,18 +596,23 @@ Round 4, on `689b2a6` (revision 5):
 - `eval-adversarial`, fail: one blocker, two majors, four minors; details withheld under D-62. https://github.com/416rehman/Guardrails/issues/474#issuecomment-7068445981
 - The ruling of the session that holds the owner's delegation: no further round. The fixes are folded in as revision 6 (this text), and what remains goes into the acceptance of #1778, #1779 and #1784. One Sonnet `eval-security` check of the final text follows, because trust core needs a second model (D-63).
 
+Revision 6, on `0365606`:
+- `eval-security` (Sonnet), pass with six minors. https://github.com/416rehman/Guardrails/issues/474#issuecomment-7069562494
+- Minor 5's wording is fixed in this text. Minors 1 to 4 and 6 are must-fail cases in the acceptance of #1778 and #1779.
+- The ruling of the session that holds the owner's delegation: Opus on revision 5 and Sonnet on revision 6 meet D-63's two models, because revision 6 weakens no check.
+
 ## Decision
 Accepted by the chief architect under D-61, on revision 6. The review ran four rounds with `eval-architecture`, the persona council, `eval-diff`, `eval-acceptance`, `eval-security` and `eval-adversarial`. The session that holds the owner's delegation ruled that round 4's findings are folded in without a further round.
 
 Reasons:
 1. **It answers #474 inside the spine.** The header is generated and diffed in CI, as design/26 EM-2 and design/03 section 7 say. No third-party dependency, licence change, public crate or same-layer edge is added (D-02, D-61). The fast-path closure stays `grdr-fastpath` and `grdr-fastpath-ffi` (design/26 section 2).
-2. **It catches accidental drift wherever the library is built.**
+2. **It catches accidental drift: of layout and signatures in every build of the library, and of the rest in the test builds and on the listed targets.**
    - The compiler and the linker hold the descriptor to the Rust items (D1 to D4, D11).
    - The testkit holds the header to the descriptor, the listed contract and the registry (`HDR-1` to `HDR-5`).
    - The library compiles its own layout and signature checks in every profile, feature set and target, the embedded profile included.
    - `c-headers` runs both test builds, a negative control, a C and C++ compile under an embedder's packing, the release export tables, and the shipped profiles and targets.
 
-   Every accidental drift the four rounds and the sketch found fails one of these, by the rules above; section 12 lists which the sketch ran. Among them: C1 and C2 in the release build, P1 in the embedded build, T1 on aarch64 Linux, and N1 through the control.
+   Every accidental drift the four rounds and the sketch found fails one of these, by the rules above; section 12 lists which the sketch ran. Among them: C1 and C2 in the `--release` builds, P1 in the embedded build, T1 on aarch64 Linux, and N1 through the control.
 3. **What differs between headers is content (P14).** Status block, version scheme, SPDX identifier and contract location are data: descriptor fields and `surfaces.toml` rows. A second header with a different status type passes the same code. The shipped profiles, features and targets are the rows' data.
 4. **The promise is the one the mechanism can keep.** The drift test runs code its writer controls, so it cannot defend against a hostile writer, and section 0 says so. That threat is held by named controls that do not run that writer's code:
    - trust-core and high-tier review of every descriptor, source and generated file;
