@@ -10,12 +10,6 @@ licence = "MIT OR Apache-2.0"
 source = "https://github.com/EmbarkStudios/cargo-deny"
 install = "cargo install --locked cargo-deny@0.22.0"
 
-[tool.cargo-vet]
-version = "0.10.3"
-licence = "Apache-2.0 OR MIT"
-source = "https://github.com/mozilla/cargo-vet"
-install = "cargo install --locked cargo-vet@0.10.3"
-
 [tool.gitleaks]
 version = "8.30.1"
 licence = "MIT"
@@ -30,15 +24,18 @@ licence = "MIT"
 source = "https://github.com/zizmorcore/zizmor"
 install = "cargo install --locked zizmor@1.32.0"
 
-# `go` is the oldest Go release that builds this version (its go.mod). The module carries no hash
-# here: `go install` checks it against the default checksum database, so a session runs it with
-# GOSUMDB at its default and no GONOSUMDB or GOPRIVATE entry that matches the module.
+# `go` is the Go toolchain that builds the binary, and so its standard library. Its go.mod asks for
+# 1.27.3, which GO-2026-6859 affects; 1.27.4 is the first fixed release. `GOTOOLCHAIN` in `install`
+# makes the go command fetch and run exactly that toolchain whatever Go the host has. The module
+# and the toolchain carry no hash here: the go command checks both against the default checksum
+# database, so a session runs it with GOSUMDB at its default and no GONOSUMDB or GOPRIVATE entry
+# that matches them.
 [tool.osv-scanner]
 version = "2.7.1"
 licence = "Apache-2.0"
 source = "https://github.com/google/osv-scanner"
-go = "1.27.3"
-install = "go install github.com/google/osv-scanner/v2/cmd/osv-scanner@v2.7.1"
+go = "1.27.4"
+install = "env GOTOOLCHAIN=go1.27.4 go install github.com/google/osv-scanner/v2/cmd/osv-scanner@v2.7.1"
 
 [tool.semgrep]
 version = "1.185.0"
