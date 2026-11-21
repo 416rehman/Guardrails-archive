@@ -30,10 +30,14 @@ licence = "MIT"
 source = "https://github.com/zizmorcore/zizmor"
 install = "cargo install --locked zizmor@1.32.0"
 
+# `go` is the oldest Go release that builds this version (its go.mod). The module carries no hash
+# here: `go install` checks it against the default checksum database, so a session runs it with
+# GOSUMDB at its default and no GONOSUMDB or GOPRIVATE entry that matches the module.
 [tool.osv-scanner]
 version = "2.7.1"
 licence = "Apache-2.0"
 source = "https://github.com/google/osv-scanner"
+go = "1.27.3"
 install = "go install github.com/google/osv-scanner/v2/cmd/osv-scanner@v2.7.1"
 
 [tool.semgrep]
