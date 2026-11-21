@@ -5,10 +5,10 @@
 # from that image, and its `install` pulls it.
 
 [tool.cargo-deny]
-version = "0.20.2"
+version = "0.22.0"
 licence = "MIT OR Apache-2.0"
 source = "https://github.com/EmbarkStudios/cargo-deny"
-install = "cargo install --locked cargo-deny@0.20.2"
+install = "cargo install --locked cargo-deny@0.22.0"
 
 [tool.cargo-vet]
 version = "0.10.3"
