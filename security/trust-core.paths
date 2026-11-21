@@ -68,6 +68,7 @@ Cargo.lock
 rust-toolchain.toml
 .cargo/**
 deny.toml
+deny.*.toml
 **/clippy.toml
 rustfmt.toml
 architecture.toml
