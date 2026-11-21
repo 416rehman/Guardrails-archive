@@ -16,6 +16,12 @@ expression = "Apache-2.0"
 gpl = "refused"
 
 [[case]]
+path = "crates/x/third_party/y.rs"
+header = "required"
+expression = "Apache-2.0"
+gpl = "refused"
+
+[[case]]
 path = "crates/x/third_party/y/lib.rs"
 header = "required"
 expression = "Apache-2.0"
@@ -34,7 +40,25 @@ gpl = "refused"
 
 [[case]]
 path = "tools/x.PS1"
+header = "required"
+expression = "Apache-2.0"
+gpl = "refused"
+
+[[case]]
+path = "docs/guide.md"
 header = "none"
+gpl = "refused"
+
+[[case]]
+path = "crates/x/supply-chain/fixtures/y.rs"
+header = "required"
+expression = "Apache-2.0"
+gpl = "refused"
+
+[[case]]
+path = "crates/x/supply-chain/fixtures/licence-lint/y.rs"
+header = "required"
+expression = "Apache-2.0"
 gpl = "refused"
 
 [[case]]

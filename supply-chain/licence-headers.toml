@@ -40,8 +40,9 @@ exempt = [
 # there too (design/30 section 1).
 gpl_exempt = ["supply-chain/fixtures/licence-lint/**"]
 
-# The line-comment prefix per file extension. Only these extensions take a header, matched in
-# exact case: `x.PS1` takes none.
+# The line-comment prefix per file extension. Only these extensions take a header. The extension
+# is looked up ignoring case, since `LIB.RS` still compiles and `x.JS` still loads; path globs and
+# the GPL allowance stay exact case.
 [comment]
 rs = "//"
 mjs = "//"
