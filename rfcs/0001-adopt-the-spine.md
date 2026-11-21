@@ -194,6 +194,7 @@ Round 3 on #1711:
 - `eval-architecture` round 4 on `40cc001` (RFC blob `351f0b9`), fail: https://github.com/416rehman/Guardrails/issues/1711#issuecomment-7068945933
 - `eval-architecture` on revision 5, `ecd19d1` (RFC blob `648f2ff`), fail: https://github.com/416rehman/Guardrails/issues/1711#issuecomment-7069273619
 - `eval-adversarial` on revision 5, `ecd19d1` (RFC blob `648f2ff`), pass on the round 4 seeds: https://github.com/416rehman/Guardrails/issues/1711#issuecomment-7069342495
+- `eval-architecture` on revision 6, `ab96233` (RFC blob `b3eacc9`), delta pass: https://github.com/416rehman/Guardrails/issues/1711#issuecomment-7069489546
 
 #55 holds the dispositions of its evaluation rounds and the round 4 verdicts of `eval-security` (pass) and `eval-adversarial` (fail) on `351f0b9`. Revision 6 replaces `648f2ff`. The seats reviewed the round 1 text. Before the decision, the seats and `eval-architecture` review the text the decision names, and their links go here.
 
