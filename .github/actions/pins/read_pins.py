@@ -30,7 +30,7 @@ def read_tool(path, tool):
     try:
         with open(path, "rb") as pins:
             tools = tomllib.load(pins).get("tool")
-    except (OSError, tomllib.TOMLDecodeError) as error:
+    except (OSError, ValueError, RecursionError) as error:
         raise Refusal("GRDR-SUPPLY-0004", f"cannot read {path}: {type(error).__name__}") from None
     table = tools.get(tool) if isinstance(tools, dict) else None
     if not isinstance(table, dict):

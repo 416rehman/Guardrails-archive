@@ -85,9 +85,10 @@ def form_names():
 
 class Reader(unittest.TestCase):
     def fixture(self, text):
-        handle = tempfile.NamedTemporaryFile("w", suffix=".toml", delete=False, encoding="utf-8")
+        content = text if isinstance(text, bytes) else text.encode("utf-8")
+        handle = tempfile.NamedTemporaryFile("wb", suffix=".toml", delete=False)
         with handle:
-            handle.write(text)
+            handle.write(content)
         self.addCleanup(pathlib.Path(handle.name).unlink)
         return handle.name
 
@@ -96,6 +97,8 @@ class Reader(unittest.TestCase):
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertEqual(result.stdout, "")
         self.assertIn(f"::error::{code} ", result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+        return result.stderr
 
     def test_clean_fixture_gives_exactly_the_keys_asked_for(self):
         result = run_reader(self.fixture(CLEAN), "gitleaks", "image config")
@@ -140,6 +143,15 @@ class Reader(unittest.TestCase):
 
     def test_unparsable_file_is_refused(self):
         self.assert_refused('[tool.gitleaks]\nversion = "8.30.1\n', "gitleaks", "version", "GRDR-SUPPLY-0004")
+
+    def test_file_that_is_not_utf8_is_refused_without_its_value(self):
+        seeded = CLEAN.encode("utf-8").replace(b'"MIT"', b'"SECRET\xffVALUE"')
+        stderr = self.assert_refused(seeded, "gitleaks", "image", "GRDR-SUPPLY-0004")
+        self.assertNotIn("SECRET", stderr)
+
+    def test_deeply_nested_value_is_refused(self):
+        seeded = CLEAN + "deep = " + "[" * 100_000 + "]" * 100_000 + "\n"
+        self.assert_refused(seeded, "semgrep-rules", "commit", "GRDR-SUPPLY-0004")
 
 
 class Workflows(unittest.TestCase):
