@@ -18,7 +18,7 @@ The `extern "C"` entry points of the fast path, so `libgrdr_fastpath` carries no
 - Trust core: `crates/grdr-fastpath-ffi/**` in security/trust-core.paths (`unsafe` in the FFI, D-63).
 
 ## Allowed dependencies
-Layer 0. Same-layer edges in architecture.toml: `grdr-fastpath`, its only dependency.
+Only `grdr-fastpath`, its one same-layer edge in architecture.toml (`scope = "its only dependency"`); no layer 0 crate and no other dependency (design/03 section 2).
 
 ## How to test
 - `cargo test --locked -p grdr-fastpath-ffi`
