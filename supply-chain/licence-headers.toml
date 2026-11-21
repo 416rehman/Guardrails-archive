@@ -32,15 +32,16 @@ shebang_prefixes = ["#!/", "#! "]
 exempt = [
   # Vendored files keep their upstream header.
   "third_party/**",
-  # Fixtures break these rules on purpose.
-  "supply-chain/fixtures/**",
+  # The licence lint's fixtures break these rules on purpose. Other gates' fixtures take headers.
+  "supply-chain/fixtures/licence-lint/**",
 ]
 
 # Paths the GPL check skips. It still runs on third_party/: a GPL identifier outside bpf/ fails
 # there too (design/30 section 1).
-gpl_exempt = ["supply-chain/fixtures/**"]
+gpl_exempt = ["supply-chain/fixtures/licence-lint/**"]
 
-# The line-comment prefix per file extension. Only these extensions take a header.
+# The line-comment prefix per file extension. Only these extensions take a header, matched in
+# exact case: `x.PS1` takes none.
 [comment]
 rs = "//"
 mjs = "//"
