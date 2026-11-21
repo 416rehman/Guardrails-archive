@@ -10,7 +10,8 @@ gpl = "refused"
 
 [[case]]
 path = "Third_Party/vale/lib.rs"
-header = "exempt"
+header = "required"
+expression = "Apache-2.0"
 gpl = "refused"
 
 [[case]]
@@ -45,8 +46,8 @@ gpl = "allowed"
 [[case]]
 path = "BPF/probe.c"
 header = "required"
-expression = "GPL-2.0-only OR BSD-2-Clause"
-gpl = "allowed"
+expression = "Apache-2.0"
+gpl = "refused"
 
 [[case]]
 path = "src/bpf/probe.c"

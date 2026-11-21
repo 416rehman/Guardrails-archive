@@ -12,7 +12,7 @@
 #
 # Paths are relative to the repository root, with `/` between folders. A glob is anchored at the
 # root and matches the whole path: `*` matches within one folder name, `**` matches zero or more
-# folders, and matching ignores case.
+# folders, and matching is exact case.
 schema = "grdr.licence-headers.v1"
 
 # Every identifier in an expression below must appear in one of the [[class]] lists there.
@@ -57,7 +57,7 @@ sh = "#"
 ps1 = "#"
 
 # A GPL identifier is allowed only in a glob under a prefix of gpl_allowed_under in licences.toml,
-# and only in a file whose path starts with that prefix, ignoring case as the globs do.
+# and only in a file whose path starts with that prefix, in exact case as the globs are.
 [[path]]
 glob = "bpf/**"
 expression = "GPL-2.0-only OR BSD-2-Clause"
