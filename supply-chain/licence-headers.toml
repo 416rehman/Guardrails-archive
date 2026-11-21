@@ -1,0 +1,44 @@
+# The two-line SPDX header every source file starts with (D-02, design/30 section 1). The licence
+# lint (30-02) reads these rules; licences.toml stays the licence policy. A new language is one
+# [comment] entry and a new path licence one [[path]] entry, each reviewed by eval-licence.
+schema = "grdr.licence-headers.v1"
+
+# Every identifier in an expression below must appear in one of the [[class]] lists there.
+licences = "supply-chain/licences.toml"
+
+# The text of the SPDX-FileCopyrightText line, read from the brand manifest (D-66).
+copyright = { file = "brand/brand.toml", key = "legal.copyright_holder" }
+
+default_expression = "Apache-2.0"
+
+# A file that starts with #! carries the header on lines 2 and 3.
+shebang_first = true
+
+# Paths the lint skips when it walks the tree.
+exempt = [
+  # Vendored files keep their upstream header.
+  "third_party/**",
+  # Fixtures break these rules on purpose.
+  "supply-chain/fixtures/**",
+]
+
+# The line-comment prefix per file extension. Only these extensions take a header.
+[comment]
+rs = "//"
+mjs = "//"
+js = "//"
+cjs = "//"
+ts = "//"
+tsx = "//"
+swift = "//"
+c = "//"
+h = "//"
+proto = "//"
+py = "#"
+sh = "#"
+ps1 = "#"
+
+# A GPL identifier is allowed only in a glob under a prefix of gpl_allowed_under in licences.toml.
+[[path]]
+glob = "bpf/**"
+expression = "GPL-2.0-only OR BSD-2-Clause"
