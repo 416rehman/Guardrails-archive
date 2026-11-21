@@ -241,7 +241,7 @@ Read from the issues and CI when the programme manager or the owner asks; metric
 |---|---|
 | Evaluators pass changes they should fail, with no person reading | Reverts or escaped defects rise: the tier's evaluator set widens for that squad, and the incident eval set scores every evaluator on each model release |
 | One `gh` login for every agent | GitHub's history cannot tell agents apart: the pull request and reports name each agent |
-| No session refuses or asks before an agent acts (ADR-0035) | An action that ends up in a diff is caught after it acts: the evaluators and CI judge the diff before it merges. An action that leaves no diff is held only by the process rules, and merging only through a pull request is a rule the session follows until #1719 adds a branch rule. A defect a refusal would have stopped becomes a CI job or a review rule |
+| No session refuses or asks before an agent acts (ADR-0035) | An action that ends up in a diff is caught after it acts: the evaluators and CI judge the diff before it merges. An action that leaves no diff is held only by the process rules, and while `main` requires a pull request and its CI checks (#1719), the evaluators' pass is a rule the session follows, not a required check; the ruleset stops a mistake, not a session steered into changing it. A defect a refusal would have stopped becomes a CI job or a review rule |
 | Subscription usage limits bind | Fewer agents at once; trust-core, security and release work first |
 | Automation is bound to the owner's account | The repository and issues hold all state, so the work can continue under another account (spine section 9) |
 
