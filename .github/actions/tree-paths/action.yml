@@ -1,0 +1,45 @@
+name: Pinned Rust toolchain
+description: >-
+  Reads the toolchain that rust-toolchain.toml pins (pinned_toolchain.py) into outputs, then
+  installs it with rustup unless install is false. Every job that runs rustup or cargo, directly or
+  through an action, calls this with id toolchain and then writes the channel output to GITHUB_ENV
+  as RUSTUP_TOOLCHAIN before its first such step.
+
+inputs:
+  install:
+    description: Install the toolchain on the runner; false for a job whose cargo runs in a container.
+    required: false
+    default: "true"
+
+outputs:
+  channel:
+    description: The pinned channel, the value for RUSTUP_TOOLCHAIN.
+    value: ${{ steps.read.outputs.RUSTUP_TOOLCHAIN }}
+
+runs:
+  using: composite
+  steps:
+    - id: read
+      shell: bash
+      run: |
+        for python in python3 python; do
+          if "$python" -I -c "import tomllib" > /dev/null 2>&1; then
+            "$python" -I -B "$GITHUB_ACTION_PATH/pinned_toolchain.py" rust-toolchain.toml >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+        done
+        echo "::error::GRDR-GATE-0006 no Python with tomllib on this runner"
+        exit 1
+    - if: inputs.install == 'true'
+      shell: bash
+      env:
+        RUSTUP_TOOLCHAIN: ${{ steps.read.outputs.RUSTUP_TOOLCHAIN }}
+        CHANNEL: ${{ steps.read.outputs.RUSTUP_TOOLCHAIN }}
+        PROFILE: ${{ steps.read.outputs.TOOLCHAIN_PROFILE }}
+        COMPONENTS: ${{ steps.read.outputs.TOOLCHAIN_COMPONENTS }}
+        TARGETS: ${{ steps.read.outputs.TOOLCHAIN_TARGETS }}
+      run: >-
+        rustup toolchain install "$CHANNEL"
+        ${PROFILE:+--profile "$PROFILE"}
+        ${COMPONENTS:+--component "$COMPONENTS"}
+        ${TARGETS:+--target "$TARGETS"}
