@@ -3,7 +3,7 @@
   "default_branch": "main",
   "branches": ["main", "issue/9"],
   "pulls": [
-    {"number": 409, "head": "issue/9", "head_repo": "contributor/repo", "body": "A change from a fork."}
+    {"number": 409, "head": "issue/9", "head_repo": "contributor/repo", "author": {"login": "example-dev", "type": "User"}, "body": "A change from a fork.", "closing_issues": []}
   ],
   "expect": [
     {"kind": "no-pull-request", "subject": "issue/9"}

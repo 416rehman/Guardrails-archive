@@ -1,0 +1,11 @@
+{
+  "repo": "example/repo",
+  "default_branch": "main",
+  "branches": ["main", "dеpendabot/x"],
+  "pulls": [
+    {"number": 1, "head": "dеpendabot/x", "head_repo": "example/repo", "author": {"login": "example-dev", "type": "User"}, "body": "", "closing_issues": []}
+  ],
+  "expect": [
+    {"kind": "bad-name", "subject": "dеpendabot/x"}
+  ]
+}
