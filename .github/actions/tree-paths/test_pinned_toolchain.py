@@ -1,11 +1,18 @@
-"""Tests for pinned_toolchain.py, workflow_reader.py and pin_rules.py, and the workflows and local
-actions they read:
-python -I -m unittest discover -s .github/actions/tree-paths -p "test_pinned_toolchain.py" -v
-
-The oracles are rustup's documented toolchain file format (a [toolchain] table with channel,
-components, targets, profile or path), git's own objects for each fixture commit, the real
-rust-toolchain.toml, cargo's and rustup's lists of the variables they read, and the workflows and
-local actions read as YAML reads them.
+"""The workflow test is WorkflowTest in test_pinned_toolchain.py, with its reader workflow_reader.py and its rules
+pin_rules.py. It reads the files in WORKFLOWS and ACTION_FILES, and PIN_ACTION_FILE, and each of its rules is a
+text match. For a workflow or action in a form GitHub runs, it fails when, and claims to fail only when:
+1. a job in a file in WORKFLOWS has an actions/checkout step, and the two steps after its first checkout are not
+   the pin step and the write step;
+2. a file in WORKFLOWS or ACTION_DEFINITIONS, or PIN_ACTION_FILE, holds a layout, a character or a key the reader
+   does not read;
+3. a file in WORKFLOWS or ACTION_DEFINITIONS holds a step, job, action or runs key outside the key sets in
+   pin_rules.py, or a job's first checkout takes an input outside CHECKOUT_INPUTS;
+4. a file it reads holds a form that a fixture of the test expects it to refuse, in the place that fixture holds
+   it, outside the declared allowlists.
+The fixtures are the list. The test claims nothing about a form no fixture expects it to refuse, even one of the
+same kind as a fixture's. It is a tripwire for drift and mistakes in workflow edits. Every file it reads is under
+.github/**, which is trust core, and review of an edit there by the trust-core evaluator set is the control
+against a hostile edit (design/02 TB-11, D-63).
 """
 
 import os
@@ -72,7 +79,6 @@ PINNED = CHECKOUT + PIN + WRITE
 LOCAL_WORKFLOW_CALL = "name: fixture\non: push\njobs:\n  docs:\n    uses: ./.github/workflows/docs.yml\n"
 ODD_CHARACTERS = {"NEL": "\x85", "LS": "\u2028", "PS": "\u2029", "FS": "\x1c", "VT": "\x0b", "tab": "\t", "CR": "\r"}
 
-# Key lines YAML reads as a job id, and the id each one names.
 JOB_KEY_LINES = {
     "trailing-comment": ("  docs: # the API docs", "docs"),
     "double-quoted": ('  "docs":', "docs"),
@@ -81,7 +87,6 @@ JOB_KEY_LINES = {
     "underscore-and-capitals": ("  Build_Docs_2:", "Build_Docs_2"),
     "quoted-underscore-capitals-comment": ('  "Build_Docs_2" : # docs', "Build_Docs_2"),
 }
-# Jobs that check out the repository and do not keep the pin, whatever their steps run.
 UNPINNED = {
     "plain-cargo": CHECKOUT + CARGO,
     "no-cargo-at-all": CHECKOUT + "      - run: make docs\n",
@@ -98,7 +103,6 @@ UNPINNED = {
     "checkout-of-another-ref": CHECKOUT + "          ref: other\n" + PIN + WRITE + CARGO,
     "checkout-into-a-path": CHECKOUT + "          path: other\n" + PIN + WRITE + CARGO,
 }
-# Jobs that keep the pin's steps, but something else in the workflow picks the toolchain.
 DEFEATED = {
     "plus-toolchain": PINNED + "      - run: cargo +stable test\n",
     "plus-toolchain-quoted": PINNED + "      - run: cargo '+stable' test\n",
@@ -170,8 +174,6 @@ DEFEATED_BY_ENV = {
     "workflow-rustc-wrapper": ("env:\n  RUSTC_WRAPPER: ./tool\n", ""),
     "workflow-bash-env": ("env:\n  BASH_ENV: ./setup.sh\n", ""),
 }
-# Keys outside the allowlists: step forms GitHub may run in another order or environment, and jobs
-# that hold keys the reader does not read.
 UNLISTED_KEYS = {
     "parallel-group-holding-the-checkout": "      - parallel:\n          - uses: actions/checkout@0\n" + CARGO,
     "background-step-before-the-checkout": "      - id: early\n        background: true\n        run: sleep 60; cargo build\n"
@@ -187,7 +189,6 @@ UNLISTED_JOB_KEYS = {
     "job-container": "    container: rust:1.80\n",
     "job-continue-on-error": "    continue-on-error: true\n",
 }
-# Workflows the reader does not read, each holding a job that checks out without the pin.
 UNREADABLE = {
     **{
         f"line-break-{name}": f"    steps: # c{char}    a: |\n      - {{uses: actions/checkout@0}}\n"
@@ -209,8 +210,6 @@ UNREADABLE = {
     "second-document": "    steps:\n      - run: x\n---\njobs:\n  docs:\n    steps:\n      - uses: actions/checkout@0\n",
     "remote-reusable-workflow": "    uses: example/rust/.github/workflows/docs.yml@0\n",
 }
-# One fixture for each refusal of the reader and the pin rules that no other fixture needs: each
-# passes when that refusal alone is taken out.
 NEEDS_ONE_REFUSAL = {
     **{f"{name}-in-a-comment": PINNED + f"      # note{char}more\n" + CARGO for name, char in ODD_CHARACTERS.items()},
     "checkout-beside-a-block-scalar": "      - run: |\n          echo\n        uses: actions/checkout@0\n" + CARGO,
@@ -223,12 +222,10 @@ NEEDS_ONE_REFUSAL = {
     + "      - uses: EmbarkStudios/cargo-deny-action@0\n        env:\n          RUSTUP_TOOLCHAIN: stable\n",
     "status-through-an-alias": PINNED + "      - name: &after always()\n        run: echo\n      - if: *after\n        run: cargo test\n",
 }
-# The step STATUS_CONDITIONS allows in dast.yml's baseline job, and the same step running a command.
 LISTED_STATUS_STEP = "      - if: always()\n        uses: actions/upload-artifact@0\n"
 
 COMPOSITE = "name: fixture\ndescription: fixture\nruns:\n  using: composite\n  steps:\n"
 ECHO = "    - shell: bash\n      run: echo done\n"
-# Local actions that a pinned job could call, each of which works past the pin.
 ACTION_DEFEATS = {
     "env-file-write": "    - shell: bash\n      run: echo \"RUSTUP_TOOLCHAIN=stable\" >> \"$GITHUB_ENV\"\n",
     "plus-toolchain": "    - shell: bash\n      run: cargo +stable build\n",
@@ -258,7 +255,6 @@ def git(repository, *args, stdin=b""):
 
 
 def commit_files(repository, files):
-    """A commit whose tree holds exactly these files, made from git objects with no working tree."""
     entries = []
     for name, text in sorted(files.items()):
         blob = git(repository, "hash-object", "-w", "--stdin", stdin=text.encode("utf-8", "surrogateescape"))
@@ -276,7 +272,6 @@ def new_repository(scratch, name):
 
 
 def env_file(text):
-    """GITHUB_ENV or GITHUB_OUTPUT as the runner reads it: KEY=value per line."""
     return dict(line.split("=", 1) for line in text.splitlines())
 
 
@@ -362,7 +357,6 @@ class ReaderTest(unittest.TestCase):
         self.assertIn("GRDR-GATE-0007", result.stderr)
 
     def replaced_blob(self):
-        """A blob spec whose commit a replacement ref points at another commit, checked to differ."""
         pinned = commit_files(self.repository, {"rust-toolchain.toml": FULL})
         git(self.repository, "replace", pinned, commit_files(self.repository, {"rust-toolchain.toml": OTHER_CHANNEL}))
         blob = f"{pinned}:rust-toolchain.toml"

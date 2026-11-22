@@ -1,9 +1,18 @@
-"""A reader for the part of YAML the workflows and local actions are written in.
-
-It reads block mappings and sequences, plain, quoted and block scalars, and comments, and raises
-Unreadable for anything else (flow collections other than [words] and {}, anchors, aliases, tags,
-explicit keys, escapes, a character outside printable ASCII), so what it reads is what YAML reads.
-It splits lines on line feeds only.
+"""The workflow test is WorkflowTest in test_pinned_toolchain.py, with its reader workflow_reader.py and its rules
+pin_rules.py. It reads the files in WORKFLOWS and ACTION_FILES, and PIN_ACTION_FILE, and each of its rules is a
+text match. For a workflow or action in a form GitHub runs, it fails when, and claims to fail only when:
+1. a job in a file in WORKFLOWS has an actions/checkout step, and the two steps after its first checkout are not
+   the pin step and the write step;
+2. a file in WORKFLOWS or ACTION_DEFINITIONS, or PIN_ACTION_FILE, holds a layout, a character or a key the reader
+   does not read;
+3. a file in WORKFLOWS or ACTION_DEFINITIONS holds a step, job, action or runs key outside the key sets in
+   pin_rules.py, or a job's first checkout takes an input outside CHECKOUT_INPUTS;
+4. a file it reads holds a form that a fixture of the test expects it to refuse, in the place that fixture holds
+   it, outside the declared allowlists.
+The fixtures are the list. The test claims nothing about a form no fixture expects it to refuse, even one of the
+same kind as a fixture's. It is a tripwire for drift and mistakes in workflow edits. Every file it reads is under
+.github/**, which is trust core, and review of an edit there by the trust-core evaluator set is the control
+against a hostile edit (design/02 TB-11, D-63).
 """
 
 import dataclasses
@@ -35,7 +44,6 @@ class Line:
 
 @dataclasses.dataclass
 class Value:
-    """A YAML node and the line it starts on: a scalar's text, a mapping or a sequence."""
     number: int
     data: str | dict | list
 
@@ -45,11 +53,6 @@ class Unreadable(Exception):
 
 
 def lines_of(text):
-    """The lines YAML reads as structure, with each "- " split into an item start and the line after it.
-
-    Blank lines, comments and the text of block scalars are left out. A block scalar's text is
-    every following line that is blank or deeper than the key that opens it.
-    """
     text_deeper_than = None
     for number, line in enumerate(text.split("\n"), 1):
         if not PRINTABLE.fullmatch(line):
@@ -71,7 +74,6 @@ def lines_of(text):
 
 
 def scalar(text, number):
-    """The value of a scalar written on one line, as YAML reads it."""
     if BLOCK_INDICATOR.fullmatch(text):
         return BLOCK_SCALAR
     single = SINGLE_QUOTED.fullmatch(text)
@@ -89,7 +91,6 @@ def scalar(text, number):
 
 
 def parse_block(lines, at, indent):
-    """The mapping or sequence that starts at lines[at] at this indent, and where it ends."""
     number = lines[at].number
     entries, items = {}, []
     while at < len(lines) and lines[at].indent == indent:
@@ -160,7 +161,6 @@ def values_of(value, what):
 
 
 def jobs_of(root):
-    """Each job as (job id, its keys, its steps' keys in order)."""
     workflow = as_mapping(root, "the workflow")
     if "jobs" not in workflow:
         raise Unreadable("no jobs at the top level")
