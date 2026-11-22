@@ -1,0 +1,19 @@
+[package]
+name = "grdr-archlint"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+publish = false
+
+[package.metadata.grdr]
+layer = "tool"
+privilege = "none"
+surface = "internal"
+renders = "agent"
+
+[dependencies]
+cargo_metadata = "0.23.1"
+serde = { version = "1.0.229", features = ["derive"] }
+
+[lints]
+workspace = true

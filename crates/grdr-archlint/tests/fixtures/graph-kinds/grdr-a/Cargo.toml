@@ -1,0 +1,27 @@
+[package]
+name = "grdr-a"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[package.metadata.grdr]
+layer = 4
+privilege = "privileged"
+surface = "internal"
+renders = "none"
+
+[features]
+parse = ["dep:json"]
+
+[dependencies]
+grdr-b = { path = "../grdr-b" }
+json = { package = "serde_json", path = "../third_party/serde_json", optional = true }
+
+[build-dependencies]
+grdr-c = { path = "../grdr-c" }
+
+[dev-dependencies]
+grdr-d = { path = "../grdr-d" }
+
+[target.'cfg(windows)'.dependencies]
+grdr-c = { path = "../grdr-c" }

@@ -1,8 +1,8 @@
-# The layer table, the same-layer edges and the ARCH-004 decoders of design/03 section 2, as data
-# the architecture lint (design/03 A2, #1580) reads beside `cargo metadata`. A crate depends only
-# on lower layers plus the rule and edges listed here; adding an edge is an RFC (D-61). Each
-# created crate's `[package.metadata.grdr]` repeats its layer, and the two must agree. Gate
-# configuration under D-63.
+# The layer table, the same-layer edges, the ARCH-004 decoders, the confined crate lists and the
+# rule messages of design/03 section 2, as data the architecture lint (`grdr-archlint`, design/03
+# A2) reads beside `cargo metadata`. A crate depends only on lower layers plus the rule and edges
+# listed here; adding an edge is an RFC (D-61). Each created crate's `[package.metadata.grdr]`
+# repeats its layer, and the two must agree. Gate configuration under D-63.
 
 [layers]
 0 = "schema"
@@ -12,16 +12,16 @@
 4 = "programs"
 tool = "test and tool crates"
 
-# May depend on any layer; nothing depends on one except as a dev-dependency, and none is linked
-# into a layer 4 program (ARCH-001, design/03 section 2).
+# May depend on any layer; nothing depends on one except as a dev-dependency, so none is linked
+# into a layer 4 program (ARCH-001, design/03 section 2). The lint accepts only these values.
 [tool]
 depends_on = "any"
 dependents_only_as = "dev"
-linked_into_programs = false
 
 # Every crate of design/03 section 2. `created = false` marks one the workspace does not have yet.
 # A `member = false` crate sits outside the workspace, so `cargo metadata` of the root does not
-# list it and `manifest` locates it.
+# list it and `manifest` locates it. `dependencies`, where present, lists every crate the crate's
+# normal and build edges may reach.
 
 [crates.grdr-proto]
 layer = 0
@@ -50,6 +50,7 @@ created = false
 [crates.grdr-fastpath]
 layer = 1
 created = true
+dependencies = []
 
 [crates.grdr-ffi]
 layer = 1
@@ -62,6 +63,7 @@ created = true
 [crates.grdr-fastpath-ffi]
 layer = 1
 created = true
+dependencies = ["grdr-fastpath"]
 
 [crates.grdr-compat]
 layer = 1
@@ -255,6 +257,10 @@ created = false
 layer = "tool"
 created = false
 
+[crates.grdr-archlint]
+layer = "tool"
+created = true
+
 # Families design/03 section 2 names by prefix ("other grdr-sandbox-*", "grdr-judge-*"). A crate
 # listed by name above wins over its family.
 
@@ -315,10 +321,16 @@ to = "grdr-crypto"
 from = "grdr-messages"
 to = "grdr-strings"
 
-# ARCH-004 (ADR-0010): the closure of every `privilege = "privileged"` program and of the programs
-# named here holds none of `content_parsers`, except the decoders below. `grdr-agents` holds the
-# hook dialect translators; `grdr-update` is admitted only where its decoder entry says.
+# ARCH-002: crates of this layer never depend on each other; they meet only in a program.
+[arch002]
+layer = 3
+
+# ARCH-004 (ADR-0010): the normal-dependency closure of every `privilege = "privileged"` crate of
+# `program_layer` and of the programs named here holds none of `content_parsers`, except the
+# decoders below. `grdr-agents` holds the hook dialect translators; `grdr-update` is admitted only
+# where its decoder entry says.
 [arch004]
+program_layer = 4
 also_programs = ["grdr-hook"]
 content_parsers = ["grdr-core", "grdr-llm-proto", "grdr-mcp-proto", "grdr-agents", "grdr-update", "cedar-policy", "yara-x", "rsigma-*", "serde_json", "regex"]
 
@@ -335,3 +347,68 @@ crate = "grdr-update"
 decodes = "TUF metadata"
 only_in = ["grdr-updater"]
 admits = ["serde_json"]
+
+# Crates that appear only under the crates `only_under` names (ARCH-005, ARCH-006). Each workspace
+# crate answers for the third-party crates its normal and build edges bring in. `what` names the
+# kind of crate in the message.
+[[confined]]
+rule = "ARCH-005"
+what = "a store driver"
+crates = ["rusqlite", "libsqlite3-sys"]
+only_under = ["grdr-store-local", "grdr-rel-sqlite"]
+
+[[confined]]
+rule = "ARCH-005"
+what = "a store driver"
+crates = ["postgres", "tokio-postgres", "sqlx", "sqlx-*"]
+only_under = ["grdr-rel-postgres"]
+
+[[confined]]
+rule = "ARCH-005"
+what = "a bus driver"
+crates = ["async-nats"]
+only_under = ["grdr-bus-nats"]
+
+[[confined]]
+rule = "ARCH-005"
+what = "an object-store driver"
+crates = ["object_store"]
+only_under = ["grdr-blob", "grdr-lake"]
+
+[[confined]]
+rule = "ARCH-006"
+what = "a cryptography crate"
+crates = [
+  "ring", "aws-lc-rs", "aws-lc-sys", "aws-lc-fips-sys", "openssl", "openssl-sys", "boring",
+  "boring-sys", "aes", "aes-gcm", "aes-gcm-siv", "chacha20", "chacha20poly1305", "poly1305",
+  "sha1", "sha2", "sha3", "blake2", "blake3", "hmac", "hkdf", "pbkdf2", "argon2", "ed25519-dalek",
+  "x25519-dalek", "curve25519-dalek", "p256", "p384", "p521", "ecdsa", "rsa",
+]
+only_under = ["grdr-crypto"]
+
+# The why, fix and escape route of each rule's message (design/03 section 2, "Lint rules"). The
+# lint writes the first part, what was found.
+[rule.ARCH-001]
+why = "a crate depends only on lower layers and the listed same-layer edges, so the core replays on the server and embeds in other products, and no program links a tool crate."
+fix = "return what you need written as an `Effect` in `Output`, or add a method to a port in `grdr-ports` and let the layer 4 program pass the adapter in."
+escape = "if the layer assignment is wrong: open an RFC (D-61). Do not edit architecture.toml in this change."
+
+[rule.ARCH-002]
+why = "adapters meet only in a program, so each can be replaced or left out without touching another."
+fix = "move the shared trait or type to layer 2, and join the adapters in the program."
+escape = "if the two adapters belong together: open an RFC (D-61). Do not edit architecture.toml in this change."
+
+[rule.ARCH-004]
+why = "a parser of untrusted content in a privileged process turns any parser bug into a privileged one (ADR-0010)."
+fix = "parse in `grdr-engine` and hand the privileged process a fixed-layout result."
+escape = "if a privileged function cannot be met with fixed-layout input: open an RFC (D-61). Do not edit architecture.toml in this change."
+
+[rule.ARCH-005]
+why = "store, bus and object-store drivers sit behind the ports, so a profile changes its back end without touching the code that uses it (P6)."
+fix = "call the port; add a port method if one is missing."
+escape = "if the crate is not a driver of that adapter: change the list in its own issue (D-63). Do not edit architecture.toml in this change."
+
+[rule.ARCH-006]
+why = "`grdr-crypto` is the only crate that links cryptography, so every primitive is composed and reviewed in one trust-core crate (D-63)."
+fix = "call `grdr-crypto`; a new primitive is a trust-core change there."
+escape = "if the crate is not cryptography: change the list in its own issue (D-63). Do not edit architecture.toml in this change."
