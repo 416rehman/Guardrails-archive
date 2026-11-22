@@ -23,15 +23,15 @@ The owner's rule: **one issue, one branch `issue/<n>`, one pull request**.
 
 - No branch exists without an open pull request. The draft pull request opens at the first push (section 2), and the branch is deleted when the pull request merges (section 5) or the issue closes without a merge (below).
 - No issue has a second pull request. Every round pushes to the same `issue/<n>`; no `-r2` or `-rev3` branch is pushed. A replacement pull request is opened only when the old one cannot carry the change (its branch had another name): open the new one, then `gh pr close <old> --comment "Replaced by #<new>."`.
-- No branch has any other name. Only Dependabot's own branches (`dependabot/...`) are exempt from the name, not from having a pull request. The exemptions are data in `.claude/hooks/branch-rules.json`.
+- No branch has any other name. Two are exempt from the name, not from having exactly one open pull request: Dependabot's own branches (`dependabot/...`) and release-please's `release-please--branches--main` (#1893). The exemptions are data in `.claude/hooks/branch-rules.json`.
 
-`node .claude/hooks/branch-check.mjs` lists every remote branch and open pull request of `GH_REPO` and checks the rule. Exit 0 means no findings; 1 prints one line per finding with its fix; 2 means it could not look, which never counts as clean. A pull request links issue `<n>` through its head `issue/<n>`, a GitHub closing keyword (`Closes #<n>`, `Fixes #<n>`, ...) anywhere in its body, or a line that is only `Refs #<n>`. Repair what it finds:
+`node .claude/hooks/branch-check.mjs` lists every remote branch and open pull request of `GH_REPO` and checks the rule. Exit 0 means no findings; 1 prints one line per finding with its fix; 2 means it could not look, which never counts as clean. A pull request links issue `<n>` through its head `issue/<n>`, a GitHub closing keyword (`Closes #<n>`, `Fixes #<n>`, ...) anywhere in its body, or a line that is only `Refs #<n>`. A branch not named `issue/<n>` that heads two open pull requests is a finding too. Repair what it finds:
 
 | Finding | Repair |
 |---|---|
 | `issue/<n>` has no open pull request, issue open | Open its draft pull request as in section 2 |
 | `issue/<n>` has no open pull request, issue closed | Delete the branch as below, or as in section 5 when its pull request merged |
-| A Dependabot branch has no open pull request | Report it to the owner; Dependabot owns its branches |
+| A Dependabot or release-please branch has no open pull request, or heads two | Report it to the owner; the bot owns its branch |
 | A branch not named `issue/<n>` | Push its commits to `issue/<n>` of its issue, open the replacement pull request, close the old one naming it, and delete the old branch. When its issue is unclear, report it to the owner |
 | An issue linked from two or more open pull requests | Keep the one on `issue/<n>` and close each other one with a comment naming it. When none is on `issue/<n>`, report it to the owner |
 
