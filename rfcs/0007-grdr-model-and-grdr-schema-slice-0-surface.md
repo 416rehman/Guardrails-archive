@@ -16,7 +16,7 @@ The text below is normative on its own. Where it differs from the items it cover
 ## Summary
 #1710 asked for one RFC over the slice-0 surface of `grdr-model` and `grdr-schema`. This RFC decides that scope in parts. It states in full the `grdr-schema` surface that #278 and #279 build, and fixes where every other slice-0 type of the two crates lives and which RFC states it: the `grdr-model` surface (#1850), the `ErrorDetail` message and its binding (#1851), and the lake column manifest type (#1852).
 
-Only each module's generated file can build a code, a registry entry, a checked retry policy or a limits row. Their constructors take a seal token that only that file can write, a typed assertion makes any hand-written item that shadows a generated name fail to build, and a layout test refuses every other way of binding the module tree. The hand-written files, the generators and their tests are trust core; the generated files are content, held by the drift test. A retired code is metadata with no value a caller can return. A code's area, number, reason, class and Connect code never change once on `main`, and a check that runs from the base build holds that. The prefix comes from the pinned wire namespace of the brand manifest, and the token ids carry no prefix. The ceilings and floors of every retry table are `limits.toml` rows, so no table can hammer a peer, and a table built at run time can only narrow a registered one. Every bound has a range, says whether a setting may change it and up to which ceiling, and says whether raising it collects or keeps more. Both modules enter `surfaces.toml` as `experimental`, while the codes themselves are stable wire identifiers from the first release.
+Only each module's generated file can build a code, a registry entry, a checked retry policy or a limits row. Their constructors take a seal token that only that file can write, a typed assertion makes any hand-written item that shadows a generated name fail to build, and a layout test compares the files rustc reads with the module tree and refuses every other way of binding it. The hand-written files, the generators and their tests are trust core; the generated files are content, held by the drift test. A retired code is metadata with no value a caller can return. A code's area, number, reason, class and Connect code never change once on `main`, and a check that runs from the base build holds that. The prefix comes from the pinned wire namespace of the brand manifest, and the token ids carry no prefix. The ceilings and floors of every retry table are `limits.toml` rows. With no new traffic, a table makes at most the free-retries ceiling plus one retries in any budget window, and a table built at run time can only narrow a registered one. Every bound has a range, says whether a setting may change it and up to which ceiling, and says whether raising it collects or keeps more. Both modules enter `surfaces.toml` as `experimental`, while the codes themselves are stable wire identifiers from the first release.
 
 ## Motivation
 #278 has 202 dependants by the #645 count, and #279 builds `limits.toml` and the module that is the only place ARCH-019 lets a bound live. Both cite RFC 0001 as their route, but RFC 0001 adopts the spine text and no crate surface, and the ruling on #1535 holds that `experimental` does not exempt a public crate (D-61, design/30 section 3). RFC 0002 (#1688), RFC 0003 (#1757) and RFC 0005 (#405) already depend on this surface:
@@ -92,7 +92,11 @@ Notes:
   - `registry` holds the sealed types (`CodeEntry` and `Code`; `RetryLimits`, `BoundEntry` and `SettingLink`) with private fields, their accessors and constructors, the lifecycle types that carry their data (`CodeState`, `Retirement`, `Scope`), the retry rules and the parity comparisons, and nothing else. It has no child module, so a struct expression of a sealed type compiles nowhere else (E0451).
   - Every constructor of a sealed type takes a `generated::Seal`, except `RetryLimits::new` and `RetryLimits::narrow`, which check every rule. `Seal` is declared in `generated` as `pub(in crate::codes) struct Seal(());`, and as `pub(in crate::limits)` in `limits`. It derives nothing and has no constructor, and its one field is private to `generated`. So no other module can write `Seal(())` (E0603) or call `Seal::default()` (E0599). Outside the crate `Seal` cannot be named (E0603) and the constructors are private (E0624).
   - The module re-exports `generated` by glob, and a hand-written item of the same name would win over the glob without a warning. So for every generated constant, for `ALL`, for `RETRY_BOUNDS` and for every row of `limits::rows`, `generated` holds a `const` assertion that passes the item the module's public path names, by value, to a `const fn` whose parameter has the generated type, and compares it field by field with the generated value. A shadow of another value fails to compile (E0080). A shadow of another type fails too (E0308), one with the same methods and a `Deref` to the right type included, because an argument passed by value is not coerced.
-  - The module tree is exactly seven files: `lib.rs`, `codes.rs`, `codes/registry.rs`, `codes/generated.rs`, `limits.rs`, `limits/registry.rs` and `limits/generated.rs`, all under `src/`. The `layout` test reads every file under `src/` and fails on any other file, on a `path` attribute, on an `include!`, `include_str!` or `include_bytes!` macro, and on an inline module body in a hand-written file. The generated `rows` module is the one inline body. The manifest sets `build = false`, so no build script is compiled.
+  - The module tree is exactly seven files: `lib.rs`, `codes.rs`, `codes/registry.rs`, `codes/generated.rs`, `limits.rs`, `limits/registry.rs` and `limits/generated.rs`, all under `src/`. The `layout` test holds it three ways, so no spelling of an attribute or a macro gets past it:
+    - it reads every file under `src/` and fails on any other file;
+    - it has rustc write the library's dep-info (`--emit=dep-info`) and fails unless the source files it lists are exactly the seven. A file read through a `path` attribute or an `include!`, `include_str!` or `include_bytes!` macro fails it however the attribute or macro is written: inside `cfg_attr`, renamed by `use`, spaced, or built by a macro;
+    - it splits each of the five hand-written files into tokens, with comments and string literals removed, and fails on the keyword `mod` unless a name and `;` follow it, on the tokens `path`, `include`, `include_str`, `include_bytes` and `cfg_attr`, raw identifiers included, and on `macro_rules` outside `lib.rs`, which defines the crate's macros. So an inline module body fails it whatever its spacing or visibility, and so does an attribute that only another target's `cfg` would read. The generated `rows` module is the one inline body, and it is in a generated file.
+  - The manifest sets `build = false`, so no build script is compiled, and `autotests = false` with each test target listed as a `[[test]]`, so a file added under `tests/` is compiled only once a change to the protected manifest names it.
   - The `units` test checks `new` and `get` of every unit type, and `Millis::as_duration` against `core::time::Duration::from_millis`, at 0, 1 and each type's maximum, and checks `Permille::ONE`. A changed unit method fails it.
   - The hand-written files, the manifest, the generators and the tests are trust core (section 8). The generated files are content: a hand edit to one fails the drift test, which a required CI step runs.
 - R11. **The contributor's path.** `crates/grdr-schema/AGENTS.md` carries two step lists, "Add an error code" (#278) and "Add a limit" (#279): the files in order, the key grammar, the regenerate command, what the pull request names for `rfc-required`, and for a code a default pairing of class and Connect code for a first entry (`input` with `invalid_argument`).
@@ -317,8 +321,8 @@ pub struct RetrySpec {
 pub struct RetryBounds {                            // one field per retry-bounds row (section 6)
     pub attempts_ceiling: Count, pub elapsed_ceiling: Millis, pub factor_ceiling: Permille,
     pub schedule_entries_ceiling: Count, pub window_ceiling: Millis, pub slots_ceiling: Count,
-    pub breaker_failures_ceiling: Count, pub interval_floor: Millis,
-    pub remote_base_floor: Millis, pub remote_cap_floor: Millis, pub hint_floor: Millis,
+    pub breaker_failures_ceiling: Count, pub free_retries_ceiling: Count, pub timeout_ceiling: Millis,
+    pub interval_floor: Millis, pub remote_base_floor: Millis, pub remote_cap_floor: Millis, pub hint_floor: Millis,
 }
 
 // limits::registry, re-exported by limits
@@ -360,13 +364,14 @@ impl Coded for LimitsError { /* RetryTable { .. } => &LIMITS_RETRY_TABLE_INVALID
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum RetryRule {
     MaxAttemptsZero, MaxAttemptsAboveCeiling, MaxElapsedZero, MaxElapsedAboveCeiling,
-    BaseZero, FactorNotAboveOne, FactorAboveCeiling, CapNotAboveBase, CapAboveElapsed,
-    ScheduleEmpty, ScheduleTooLong, ScheduleDecreasing { index: u16 }, ScheduleLastZero,
-    ScheduleAboveElapsed, JitterAboveOne,
+    BaseZero, FactorNotAboveOne, FactorAboveCeiling, GrowthStalls, CapNotAboveBase, CapAboveElapsed,
+    ScheduleEmpty, ScheduleTooLong, ScheduleBeyondAttempts, ScheduleDecreasing { index: u16 },
+    ScheduleLastZero, ScheduleAboveElapsed, JitterAboveOne,
     RemoteBaseBelowFloor, RemoteCapBelowFloor, RemoteJitterNotFull, RemoteHintIgnored,
     BudgetRatioAboveOne, BudgetWindowZero, BudgetWindowAboveCeiling, BudgetSlotsOutOfRange,
     BudgetWindowNotDivisible, BudgetIntervalZero, BudgetIntervalBelowFloor, BudgetIntervalAboveWindow,
-    TimeoutZero, TimeoutAboveElapsed, BreakerFailuresZero, BreakerFailuresAboveCeiling,
+    BudgetFreeAboveCeiling,
+    TimeoutZero, TimeoutAboveCeiling, TimeoutAboveElapsed, BreakerFailuresZero, BreakerFailuresAboveCeiling,
     RunTimeSchedule, NotNarrower { field: RetryField },
 }
 impl RetryRule { pub const fn as_str(self) -> &'static str; } // "schedule_decreasing", ...
@@ -401,26 +406,26 @@ How a person reads each unit, for the interfaces squad, which owns the formattin
 - `check` applies the rules in `RetryRule` order against the `RetryBounds` it is given and returns the first that fails. `new` and `narrow` pass the generated `RETRY_BOUNDS`. The generator passes the bounds it parsed from the same `limits.toml`, so a pull request that changes a ceiling or a floor checks every table against its own new values. The rules:
   - `max_attempts` of 0, or above `attempts_ceiling`;
   - `max_elapsed` of 0, which would give up before any retry, or above `elapsed_ceiling`. A policy that never retries says so with `max_attempts = 1`, its one spelling;
-  - an exponential `base` of 0; a `factor` at or below `Permille::ONE`, or above `factor_ceiling`; a `cap` at or below its `base`, or above `max_elapsed`. So every exponential table grows from `base` to a higher `cap`;
-  - an empty schedule, one longer than `schedule_entries_ceiling`, one that decreases at `index`, one whose last delay is 0, one whose last delay is above `max_elapsed`, or a `jitter` above `Permille::ONE`;
-  - for a table whose `peer` is `remote`: an exponential `base` below `remote_base_floor`; an exponential `cap`, or a schedule's last delay, below `remote_cap_floor`; a schedule `jitter` other than `Permille::ONE`; and `honour_hint = false`. P15 mechanism 2 asks for full jitter and a hint that is a floor;
-  - a budget `ratio` above `Permille::ONE`, a `window` of 0 or above `window_ceiling`, `slots` of 0 or above `slots_ceiling`, a `window` that is not a multiple of `slots`, or a `min_interval` of 0, below `interval_floor` or above `window`;
-  - a `timeout` of 0, which would fail every attempt at once, or above `max_elapsed`, so one attempt cannot outlast the policy;
+  - an exponential `base` of 0; a `factor` at or below `Permille::ONE`, or above `factor_ceiling`; a `base` and `factor` with `base * (factor - 1000) < 1000`, whose first step does not grow under #282 R3's integer arithmetic; a `cap` at or below its `base`, or above `max_elapsed`. A ceiling at or above `base` grows at least as much as `base` does, so every step grows by at least 1 ms until it reaches `cap`;
+  - an empty schedule; one longer than `schedule_entries_ceiling`, or than `max_attempts - 1`, the most retries the policy makes, so no delay a rule reads goes unused; one that decreases at `index`; one whose last delay is 0 or above `max_elapsed`; or a `jitter` above `Permille::ONE`;
+  - for a table whose `peer` is `remote`: an exponential `base`, or a schedule's first delay, below `remote_base_floor`; an exponential `cap`, or a schedule's last delay, below `remote_cap_floor`; a schedule `jitter` other than `Permille::ONE`; and `honour_hint = false`. P15 mechanism 2 asks for full jitter and a hint that is a floor;
+  - a budget `ratio` above `Permille::ONE`, a `window` of 0 or above `window_ceiling`, `slots` below 2 or above `slots_ceiling`, a `window` that is not a multiple of `slots`, a `min_interval` of 0, below `interval_floor` or above `window`, or a free term `floor(window / min_interval)` above `free_retries_ceiling`;
+  - a `timeout` of 0, which would fail every attempt at once, above `timeout_ceiling`, or above `max_elapsed`, so one attempt cannot outlast the policy;
   - `breaker_failures` of 0, or above `breaker_failures_ceiling`, so the breaker always opens.
 - `peer` says whether the table calls something on this machine (`local`, such as a relational call or a bundle reload) or across a network (`remote`). A local call keeps its short base; the remote floors apply only across a network.
-- The interval floor bounds the budget's free term, `floor(window / min_interval)` (#282 R8), so against a dead peer and with no new traffic a table makes at most one retry per `interval_floor`: one a second at the seed value. The ratio term allows at most one retry per first attempt.
-- A schedule's last delay repeats past its end, until `max_attempts` or `max_elapsed` ends the policy (#282 R4), and it times the breaker (#282 R9). So the last delay may not be 0. A leading 0 stays possible, so one immediate retry is still expressible.
+- The budget allows a retry while the retries in its window stay within `floor(ratio * requests / 1000) + floor(window / min_interval)` (#282 R8). The free term is at most `free_retries_ceiling`, and the ratio term allows at most one retry per first attempt. So against a peer that never answers, with no new traffic, one call makes at most `free_retries_ceiling + 1` retries in any budget window as #282 R8 counts it: 7 at the seed values. That is a ceiling per window, not a rate. Nothing paces retries inside a window, so all of them may come at once; the interval floor bounds only their average over the window. A budget has at least two slots, so its window slides: with one slot the window is fixed, and one call can spend one window's allowance just before its edge and the next window's just after it.
+- A schedule's last delay repeats past its end, until `max_attempts` or `max_elapsed` ends the policy (#282 R4), and it times the breaker (#282 R9). So the last delay may not be 0. A local schedule may still start with a 0, so an immediate retry is expressible against a local peer. A remote schedule's first delay is at least `remote_base_floor`.
 - `jitter` makes a schedule's delay a uniform draw from `[d - d * jitter / 1000, d]` for a scheduled delay `d`: 1000 is full jitter and 0 is none, so no jitter is a choice a local table writes. An exponential policy always draws in `[0, ceiling]`, full jitter (P15 mechanism 2, design/22 section 2.7), and has no `jitter` key.
 - A peer's retry-after hint `h` is first raised to `hint_floor`, and the delay is then the larger of the backoff draw and `h + U(0, h)`, never longer than the remaining elapsed allowance (#282 R5 and R7).
 - `check` is the one copy of the rules, in `limits::registry`. The generator calls it on every `[retry.<name>]` table before it writes the constant, so a committed constant has passed it, and the drift test runs it again on every test run. The generated constants use a constructor that takes the seal and skips the checks (R10), so they cannot fail at run time.
 - Product code reads a named policy only through `RetryPolicy::from_limits` (#1850). A table built at run time, such as a provider-scoped table for one integration target, is built only by `narrow` on a registered exponential table. It passes every rule and is no more aggressive than that table:
-  - `peer`, `budget_window_ms` and `budget_slots` stay as registered;
-  - `base`, `factor`, `cap`, `timeout` and `min_interval` may only rise;
+  - `kind`, `peer`, `budget_window_ms` and `budget_slots` stay as registered;
+  - `base`, `factor`, `cap`, `timeout` and `min_interval` may only rise, and `timeout` no higher than `timeout_ceiling`, since the result passes every rule;
   - `max_attempts`, `max_elapsed`, `breaker_failures` and the budget `ratio` may only fall;
   - `honour_hint` may only be turned on.
-  The first field that breaks this is refused as `NotNarrower { field }`. A schedule is never built at run time (`RunTimeSchedule`): it comes only from `limits.toml`, which is why `Backoff::Schedule` can hold `&'static` delays.
+  The first field that breaks this is refused as `NotNarrower { field }`. A schedule is never built at run time (`RunTimeSchedule`): it comes only from `limits.toml`, which is why `Backoff::Schedule` can hold `&'static` delays. Because `kind` stays, narrowing a registered schedule table to an exponential one is `NotNarrower { field: Kind }`.
 - The configuration keys that carry a run-time table are tagged `security`, so in the `protected` topology only layers 1 to 3 set them (design/03 section 9). #1591 holds that.
-- `new` exists for tests, which need tables `limits.toml` does not hold, and ARCH-019 refuses a call to it outside test code.
+- `new` exists for tests, which need tables `limits.toml` does not hold, and ARCH-019 refuses any path expression that names it outside test code, whether it is called or passed as a function value.
 - A policy that must keep trying, such as the uplink's, gives up at its `max_elapsed` and reports the give-up (P9); the caller decides whether a new episode starts (design/22 section 2.7).
 
 `LimitsError` is the crate's one error enum, `#[non_exhaustive]`. `RetryTable` binds to a new area, `LIMITS` (subsystem: bounds and retry policies; owner: `design/03`):
@@ -479,7 +484,7 @@ Values:
 
 `note` is reference prose, as a proto comment is. The generator writes it into no Rust file, so no product surface can read it. The `limits.toml` reference page (DOC-2, #1065) shows each row's name, unit, value, range, scope, effect, key, ceiling, owner and note, so a reader learns what a bound is and whether a setting may change it without reading source. It takes the values from `limits::ALL`, and `owner` and `note` from `limits.toml`, matched by name, and fails on a name found in only one of them. It shows `note` inside `lang="en" dir="ltr"` and renders it as text, never as MDX. `note` is not a language token (D-69). A screen that describes a limit uses a language token with its own `desc`.
 
-**The retry bounds.** The ceilings and floors that `check` applies are eleven required `[bound.retry-bounds.*]` rows, each `scope = "fixed"` and `effect = "none"`, owned by design/22. The generator builds `RETRY_BOUNDS` from them and stops when one is missing or has another unit. #279's lead sets each row's `min` and `max` from design/22. The seed values:
+**The retry bounds.** The ceilings and floors that `check` applies are thirteen required `[bound.retry-bounds.*]` rows, each `scope = "fixed"` and `effect = "none"`, owned by design/22. The generator builds `RETRY_BOUNDS` from them and stops when one is missing or has another unit. #279's lead sets each row's `min` and `max` from design/22. The seed values:
 
 | Row | Unit | Value | Bounds |
 |---|---|---|---|
@@ -490,6 +495,8 @@ Values:
 | `retry-bounds.window-ceiling` | `ms` | 86,400,000 | `budget_window_ms` |
 | `retry-bounds.slots-ceiling` | `count` | 1,000 | `budget_slots` |
 | `retry-bounds.breaker-failures-ceiling` | `count` | 100 | `breaker_failures` |
+| `retry-bounds.free-retries-ceiling` | `count` | 6 | `floor(budget_window_ms / budget_min_interval_ms)`, the budget's free term; design/22 section 2.7's one retry every 10 s in a minute |
+| `retry-bounds.timeout-ceiling` | `ms` | 3,600,000 | `timeout_ms`; one hour, the longest backoff cap design/22 names (`update-download`) |
 | `retry-bounds.interval-floor` | `ms` | 1,000 | `budget_min_interval_ms` |
 | `retry-bounds.remote-base-floor` | `ms` | 100 | `base_ms` of a remote table |
 | `retry-bounds.remote-cap-floor` | `ms` | 10,000 | `cap_ms`, or the last of `delays_ms`, of a remote table |
@@ -521,7 +528,7 @@ The generator refuses, naming the file, the table, the key and the rule:
 - a backoff key of the other kind, such as `delays_ms` under `kind = "exponential"`, or `jitter_permille` under it;
 - a missing `retry-bounds` row, or one whose unit differs from the table above.
 
-The seed is #279 R7's rows, each now with `min`, `max`, `scope` and `effect`, and the eleven retry bounds. No retry table is seeded (#279 R8). Adding or changing a row is content in an item whose write set names `limits.toml`, which is trust core (D-63), and its pull request names RFC 0007. Anyone may open that pull request; it lands only through the full lane. Removing a row removes its constant, which fails the build of every crate that names it.
+The seed is #279 R7's rows, each now with `min`, `max`, `scope` and `effect`, and the thirteen retry bounds. No retry table is seeded (#279 R8). Adding or changing a row is content in an item whose write set names `limits.toml`, which is trust core (D-63), and its pull request names RFC 0007. Anyone may open that pull request; it lands only through the full lane. Removing a row removes its constant, which fails the build of every crate that names it.
 
 ### 7. What this settles for other RFCs and items
 - **RFC 0005 (#405).** Its rows fit section 6 as its R5.1, R5.3, R2.18 and R2.19 now state them:
@@ -545,12 +552,13 @@ The seed is #279 R7's rows, each now with `min`, `max`, `scope` and `effect`, an
 |---|---|---|
 | A sealed value exists only where `generated` built it | The seal and the defining `registry` module (R10); the compiler on every build. The `cases` test of `tests/construction.rs` copies the crate to a temporary directory, adds one item per case, runs `cargo check --offline` and expects the case's error: a mint from the parent or a sibling (E0603), `Seal::default()` (E0599), `Seal` named outside the crate (E0603), a struct expression outside `registry` (E0451), a shadow of a constant, of `ALL`, of `RETRY_BOUNDS` or of a `rows` entry (E0080), and a shadow of another type with the same methods and a `Deref` (E0308). Compile-fail doctests show that no crate outside `grdr-schema` can build a `Code`, a `CodeEntry` or a `BoundEntry` | #278, #279 |
 | A hand-written name never shadows a generated one | The by-value parity assertions of R10 | #278, #279 |
-| The module tree is the seven files | The `layout` test of `tests/construction.rs` and `build = false` (R10). Its cases add an inline module body, a `path` attribute and an `include!` to a copy and expect `layout` to fail | #278 |
+| The module tree is the seven files | The `layout` test of `tests/construction.rs`, with rustc's dep-info and the token scan, and the manifest's `build = false` and `autotests = false` (R10). Its cases add each of these to a copy and expect `layout` to fail: an inline module body, also as `pub(super) mod x {`, as `mod  x {` and with a line break before `{`; a `path` attribute, also inside `cfg_attr(all(), ..)` and to a file outside `src/`; `include!`, also as `include !(..)`, as `core::include!(..)`, renamed by `use core::include as ..`, and built by a `macro_rules!` from a metavariable; and `macro_rules!` outside `lib.rs` | #278 |
 | The unit types do what their names say | The `units` test of `tests/construction.rs`, against `core::time::Duration` | #279 |
 | No retired code can be returned | A retired entry is a `CodeEntry` only, with no `Code` | #278 |
 | Every error variant has one code | `Coded` with an exhaustive match, and a compile-fail doctest whose impl leaves a variant unmatched (#280 AC-3, moved); ARCH-017 over the error enums, reading the `const_name` of each active entry from `ALL` | #278; #1582 |
 | The constants equal the registry and `limits.toml` | The `drift` tests, the `regenerate` test as the one writer, the line-ending tests | #278, #279 |
 | The drift tests always run | A required CI step that, for each module whose `src/<module>/generated.rs` exists, runs `cargo test --locked -p grdr-schema --test <module>_gen -- --exact drift` and fails unless that target reports exactly one passed test. A missing target, `required-features`, `test = false`, `#[ignore]` or a renamed test fails it, and the step needs no change when #279 adds `limits_gen` | The gate item filed on acceptance |
+| The construction tests always run, alone | A required CI step of its own that runs `cargo test --locked -p grdr-schema --test construction -- --exact <name>` once for each of `layout`, `units` and `cases`, and fails unless each run reports exactly one passed test. It builds and runs no other test target, so no file under `tests/` can change the tree before `layout` reads it | The gate item filed on acceptance |
 | The mechanism changes only with the full lane | Twelve `security/trust-core.paths` lines: `crates/grdr-schema/Cargo.toml`, `crates/grdr-schema/src/lib.rs`, `crates/grdr-schema/src/codes.rs`, `crates/grdr-schema/src/codes/registry.rs`, `crates/grdr-schema/src/limits.rs`, `crates/grdr-schema/src/limits/registry.rs`, `crates/grdr-schema/tests/gen/**`, `crates/grdr-schema/tests/codes_gen.rs`, `crates/grdr-schema/tests/limits_gen.rs`, `crates/grdr-schema/tests/construction.rs`, `crates/grdr-schema/tests/fixtures/codes/**` and `crates/grdr-schema/tests/fixtures/limits/**`, beside `limits.toml`. They are trust core as the gate data `limits.toml` is (design/03 section 10), under D-63's gate entry. None is gate configuration in AGENTS.md's list, so a change to one is an ordinary item on the full lane, with D-63's reference model: #278's and #279's AC-3 readers and #279's differential test of `check`. The two generated files stay off the list. They are high tier through `crates/grdr-schema/**`, a hand edit to one fails the drift step, and with that step green a registration is judged on its TOML and token diff | The gate item |
 | An entry never changes its area, number, reason, class or Connect code, never leaves, and moves only from `active` to `retired` | The registry check `history` (section 4), run from the base build by a `pull_request_target` job that reads the head as data | #278 builds it; the gate item wires and hardens the job and adds it to the ruleset's required checks through #1719 |
 | The grammars and refusals of sections 4 and 6 | One fixture per refusal, each format number pinned at its boundary, and the escaping fixture of R5 | #278, #279 |
@@ -559,8 +567,9 @@ The seed is #279 R7's rows, each now with `min`, `max`, `scope` and `effect`, an
 | Each enum's words are one list | One macro list per enum; the generator reads `VARIANTS` and `as_str` | #278, #279 |
 | Every entry has its two tokens in every shipped locale | A check in `grdr-interface-gen` that walks every entry of `ALL`, retired ones included, and fails on a missing `message_token()` or `fix_token()` | #1853 |
 | A code from the wire is shown only when it is well formed | The grammar of section 3; fixtures with escape sequences, bidirectional controls, an overlong string and `..` | #1851, #1853 |
-| No literal bound in product code | ARCH-019, outside `src/limits/generated.rs` and test code: in the operand of a unit constructor (`Bytes::new(..)` or `Bytes(..)` and the other three) or in any field of a `RetrySpec`, `BudgetLimits` or `Backoff` expression, macro arguments included, no literal of any kind and no associated constant of a primitive or `core` type, such as `u64::MAX` or `Duration::MAX`; no unit constructor used as a function value; no renaming `use` and no `type` alias of these types; and no call to `RetryLimits::new`. Its message has the four parts of design/03 section 2 and names `limits.toml`, the key grammar, the regenerate command and the step list (R11), and ARCH-017's names the code step list. It is a tripwire: a wrapper function or arithmetic on generated constants passes it, and structure rule S7 holds those in review | #1582 |
+| No literal bound in product code | ARCH-019, outside `src/limits/generated.rs` and test code: in the operand of a unit constructor (`Bytes::new(..)` or `Bytes(..)` and the other three) or in any field of a `RetrySpec`, `BudgetLimits` or `Backoff` expression, macro arguments included, no literal of any kind and no associated constant of a primitive or `core` type, such as `u64::MAX` or `Duration::MAX`; no unit constructor used as a function value; no renaming `use` and no `type` alias of these types; and no path expression that names `RetryLimits::new`, called or not. Its message has the four parts of design/03 section 2 and names `limits.toml`, the key grammar, the regenerate command and the step list (R11), and ARCH-017's names the code step list. It is a tripwire: a wrapper function or arithmetic on generated constants passes it, and structure rule S7 holds those in review | #1582 |
 | One copy of the retry rules | `check` in `limits::registry`, called by the generator, `new` and `narrow`; one fixture per `RetryRule` at its boundary and one past it; a differential test against a reference written from the list of section 5, independent of the crate's code | #279 |
+| No accepted table retries faster than its budget allows | The rate oracle, a property test with a reference model of #282 R3 to R8 written in the test and sharing no code with the crate. For every fixture table and for seeded random tables that `check` accepts, it runs one call against a peer that never answers and sends no hint, with no other traffic, and asserts at most `free_retries_ceiling + 1` retries in any one-second span. At the seed rows a remote table with a free term of 6 and a factor of 1500 makes 7 retries and is then refused by its budget | #279 |
 | A bound's range, scope and effect hold | The generator's refusals; `SettingLink::clamp` in the resolver; `BoundEntry::cap` where a peer's value meets a `fixed` or `ceiling` row; the D-31 rule for raised effect rows | #279; #1591 |
 | A change to a row whose effect is not `none` is reviewed for privacy | `eval-tier` flags a pull request whose `limits.toml` diff touches such a row on its base or its head, and the session asks `persona-privacy-officer` to comment on the item's issue; `eval-security` checks the row in the diff; `eval-docs` checks the release note | The agent-kit item filed on acceptance |
 | `note` reaches no product surface | It is generated into no Rust file | #279 |
@@ -579,7 +588,7 @@ Under #1710 R4, each lead writes these changes into its item before readying it.
   - R6 becomes `CodeEntry`, `Code`, `CodeState` and `Retirement` in `codes::registry`, built only with the seal (R10).
   - R7 gains the refusals of section 4, with a repeated reason refused across retired entries too.
   - The item also builds `CodeStatus`, `ErrorClass` and `ConnectCode` from one macro list each, and `Coded` with its compile-fail doctest from #280.
-  - It builds the registry check `history` with its namespace refusal, `tests/construction.rs` with its `layout` and `cases` tests, the escaping function, the "Add an error code" step list in `crates/grdr-schema/AGENTS.md`, the generated-file header and the registry headers (R5, R10, R11). Its write set gains `crates/grdr-schema/AGENTS.md`.
+  - It builds the registry check `history` with its namespace refusal, the manifest with the target settings of R10, `tests/construction.rs` with its `layout` and `cases` tests, the escaping function, the "Add an error code" step list in `crates/grdr-schema/AGENTS.md`, the generated-file header and the registry headers (R5, R10, R11). Its write set gains `crates/grdr-schema/AGENTS.md`.
   - AC-1 gains a fixture per new refusal and at each grammar boundary (an area of one and of nine letters, a reason of 64 bytes, numbers 0 and 10000, a `subsystem` of 64 bytes). AC-4 checks the five derived strings.
 - **#279**:
   - R1 gives a bound the keys of section 6, with `owner` as `design/NN` only and the grammars of `key` and `note`.
@@ -587,11 +596,11 @@ Under #1710 R4, each lead writes these changes into its item before readying it.
   - R3 tightens the grammar as section 6 states.
   - R4's types become those of section 5: `RetryLimits`, `BoundEntry`, `SettingLink` and `Scope` in `limits::registry` with the seal, `RetryBounds`, `RETRY_BOUNDS`, `limits::rows`, `limits::ALL` and the by-value parity assertions.
   - R5 gains the refusals of section 6 and validates retry tables through `check` against the parsed retry bounds.
-  - R7's seed rows gain `min`, `max`, `scope` and `effect`, which #279's lead sets from each row's owning document, and the seed gains the eleven retry bounds.
+  - R7's seed rows gain `min`, `max`, `scope` and `effect`, which #279's lead sets from each row's owning document, and the seed gains the thirteen retry bounds.
   - R9's "constants only" becomes "no parser": the module holds types, constants, tables and the checked constructors.
   - It registers area `LIMITS` and `GRDR-LIMITS-0001`, class `input`, so its write set gains `schema/codes/areas.toml` and `schema/codes/limits.toml`, and it is blocked by the gate item.
-  - It builds the `units` test, its part of the `cases` test, the differential test of `check`, and the "Add a limit" step list (R11).
-  - AC-1 gains a fixture per new refusal and one per `RetryRule`, each retry bound at its row's value and one past it, and `budget_slots = 1001`.
+  - It builds the `units` test, its part of the `cases` test, the differential test of `check`, the rate oracle (section 8), and the "Add a limit" step list (R11).
+  - AC-1 gains a fixture per new refusal and one per `RetryRule`, each retry bound at its row's value and one past it, and `budget_slots` of 1 and of 1001.
 - **#280**: keeps `ErrorDetail` and `Code::detail()`, which #1851 now states. `Coded` moves to #278.
 - **#282**: its tests build `RetryLimits` through `new` or `narrow`. Its R4 takes a schedule's `jitter`. Its R5's delay is the larger of the backoff draw and `h + U(0, h)`, with `h` first raised to `RETRY_BOUNDS.hint_floor`.
 - **#18, #383, #282, #284**: the route is #1850, not RFC 0001.
@@ -646,10 +655,10 @@ Each lands after acceptance through an issue whose write set names design/03, fi
 | A manifest sets another namespace | #1856's loader refuses it; until then the registry check does; a regenerate would also fail the drift test | The loader's error; the check's line; the drift line |
 | A retry-bounds row is missing or has another unit | Generation stops | The refusal line |
 | A committed generated file is stale | The `drift` test fails | The first differing line and the regenerate command |
-| The drift tests did not run | The required CI step fails | The step names the target with no passed test |
+| The drift or construction tests did not run | A required CI step fails | The step names the target or test with no passed test |
 | A hand-written item shadows a generated name | The crate does not compile | rustc's E0080 at the parity assertion, or E0308 |
 | A module other than `generated` builds a sealed value | The crate does not compile | rustc's E0603, E0599 or E0451 |
-| A hand-written file binds the module tree another way | The `layout` test fails | The test names the file and the refused form |
+| A hand-written file binds the module tree another way | The `layout` test fails | The test names the file and the refused token, or the file rustc read outside the seven |
 | A unit method changes its meaning | The `units` test fails | The value it expected and the one it got |
 | An entry on `main` is changed, deleted or reactivated | The registry check refuses the pull request | The check names the entry and the rule |
 | The registry check cannot read the base or the head, or meets a symlink or submodule | It fails with "could not look"; never a pass | The job's output, with no head content in it |
@@ -669,7 +678,7 @@ Nothing in either module fails at run time except `RetryLimits::new` and `RetryL
 
 ## Surfaces changed
 - `grdr-schema` (layer 0, public): module `codes` (`Code`, `CodeEntry`, `CodeState`, `Retirement`, `CodeStatus`, `ErrorClass`, `ConnectCode`, `Coded`, the generated constants and `ALL`) and module `limits` (`Bytes`, `Count`, `Millis`, `Permille`, `Backoff`, `BudgetLimits`, `RetryPeer`, `RetrySpec`, `RetryBounds`, `RetryLimits`, `RetryField`, `RetryRule`, `LimitsError`, `BoundEntry`, `Scope`, `SettingLink`, `BoundUnit`, `BoundScope`, `BoundEffect`, the generated constants, `RETRY_BOUNDS`, `rows` and `ALL`). Class `experimental`.
-- The formats `schema/codes/areas.toml`, `schema/codes/<area>.toml` and `limits.toml`, read by the generators, with the eleven retry-bounds rows the format requires.
+- The formats `schema/codes/areas.toml`, `schema/codes/<area>.toml` and `limits.toml`, read by the generators, with the thirteen retry-bounds rows the format requires.
 - The rendered code `GRDR-<AREA>-<NNNN>`, with its prefix from the pinned namespace, its token ids `code.<area>_<nnnn>.message` and `.fix`, and its anchor `codes/<code>`: stable wire identifiers from the first release.
 - Content: area `LIMITS` and `GRDR-LIMITS-0001`.
 - As proposals: design/03 sections 2 and 10 (section 10), the `[[crate]]` row of `surfaces.toml` (section 11), and the twelve `security/trust-core.paths` lines of section 8.
@@ -688,6 +697,8 @@ Nothing in either module fails at run time except `RetryLimits::new` and `RetryL
 - **Parity by method call.** A shadow of another type with the same methods and a `Deref` passes it. Rejected for a by-value argument of the generated type.
 - **The generated files on the trust-core lines.** Every registration, which is content, would take D-63's reference model and soak obligations, which attach to mechanism. The drift step already fails a hand edit once the generator and its tests are protected. Rejected for protecting the mechanism and keeping the generated files as high-tier content.
 - **Protecting the hand-written files with no layout test.** A `path` attribute, an `include!` or an inline module in a protected file would take the full lane, but only review would see what it compiles. Rejected for the `layout` test.
+- **A `layout` test that searches text.** `cfg_attr(all(), path = ..)`, `include` renamed by `use` or reached through a macro metavariable, and `pub(super) mod x {` each passed a substring search and compiled a file outside the seven. Rejected for rustc's dep-info and a token scan.
+- **`layout` in the workspace test run only.** Cargo runs test targets in name order, so two unprotected test files could restore a clean file before `layout` read it and put the change back after. Rejected for `autotests = false` and a required step that runs the construction tests alone.
 - **Public fields or a public constructor on `Code`.** Any crate could make a code the registry lacks, and only ARCH-017's scan would notice. Rejected.
 - **Retired entries as `Code` values in `ALL`.** A `Coded` impl could return one by searching `ALL`. Rejected for `CodeEntry`, which is not a `Code`.
 - **Token ids that embed the rendered code.** Upper case and hyphens break the token id grammar, and a namespace move would orphan every translation. Rejected for ids from area and number.
@@ -706,7 +717,9 @@ Nothing in either module fails at run time except `RetryLimits::new` and `RetryL
 - **Schedules built at run time.** A schedule from configuration would need storage that lives as long as the table, or a leak on every reload. Rejected: schedules come only from `limits.toml`.
 - **The retry rules in the generator only.** A run-time constructor would need a second copy. Rejected for one copy in `check`, which the generator calls.
 - **Retry ceilings as constants in code.** A seven-day give-up or a breaker of 100 is an operational threshold, and changing it would need a Rust edit and an RFC. Rejected for rows (P14).
-- **Ceilings with no floors.** A table at every ceiling, with a 1 ms base, cap and interval, retried a dead peer more than a thousand times a second. Rejected for the interval floor, the growth rule and the remote floors.
+- **Ceilings with no floors.** A table at every ceiling, with a 1 ms base, cap and interval, retried a dead peer more than a thousand times a second. Rejected for the interval floor, the free-retries ceiling, the growth rule and the remote floors.
+- **The interval floor alone.** It bounds the free term's average over the window, not its burst: a one-day window with a one-second interval allowed 86,400 retries at once. Lowering the window ceiling instead still allows a minute's worth at once. Rejected for a ceiling on the free term.
+- **Growth as `factor > 1000` and `cap > base` only.** Under #282 R3's integer arithmetic a 100 ms base with a factor of 1001 never grows, so the remote cap floor was never reached. Rejected for the growth rule on `base * (factor - 1000)`.
 - **One floor for every table.** A floor that suits a remote peer would refuse a local relational call's short base. Rejected for floors that depend on `peer`.
 - **A `jitter` key on exponential tables.** P15 fixes full jitter for them, so the key would have one allowed value, a reserved value in all but name. Rejected.
 - **`max_elapsed = 0` meaning "no elapsed limit".** A reserved value, which section 6 forbids. Rejected: 0 is refused, and every policy has a finite elapsed limit below its ceiling.
@@ -731,7 +744,7 @@ Nothing in either module fails at run time except `RetryLimits::new` and `RetryL
 - `retired_in` names a `grdr-schema` version, not a product version, so #1636 maps it to the product release.
 - The registry check can only refuse. A wrong entry is repaired by retiring it and registering a new one.
 - The generator reads `brand/brand.toml`, so a malformed manifest stops code generation as well as the build steps that already read it.
-- Thirty-three retry rules each need a fixture, and the differential test needs a second implementation of them.
+- Thirty-seven retry rules each need a fixture, and the differential test needs a second implementation of them.
 
 ## Unresolved questions
 None for this RFC. Open elsewhere:
@@ -743,12 +756,12 @@ None for this RFC. Open elsewhere:
 
 Filed on acceptance:
 - the `surfaces.toml` row (#1710 R3);
-- the gate item, for lead-agent-kit, trust core, blocked by #278 and blocking every later item that changes `schema/codes/`, #279 first. It adds the twelve `security/trust-core.paths` lines of section 8, the required drift step, and the `pull_request_target` job that runs the registry check from the base build. Its criteria:
+- the gate item, for lead-agent-kit, trust core, blocked by #278 and blocking every later item that changes `schema/codes/`, #279 first. It adds the twelve `security/trust-core.paths` lines of section 8, the required drift and construction steps, and the `pull_request_target` job that runs the registry check from the base build. Its criteria:
   - the job has `permissions` of `contents: read` only, no secret in its environment, and `persist-credentials: false`;
   - it reads the head's `schema/codes/` and `brand/brand.toml` as git blobs of regular-file mode, refuses a symlink or submodule entry, caps the count and size of what it reads, and prints entry keys only, never head content;
   - nothing from the head reaches the base build's compile inputs;
   - the tests gate ends with `git diff --exit-code`, so no test leaves the tree changed;
-  - the job, the required drift step and the evaluators' lane all run on a pull request from a fork, with no secret;
+  - the job, the required drift and construction steps and the evaluators' lane all run on a pull request from a fork, with no secret;
 - the agent-kit item, for lead-agent-kit: `eval-tier` flags a pull request whose `limits.toml` diff touches a row whose effect is not `none` on its base or its head, and `grdr-work-issue` asks `persona-privacy-officer` to comment before it lands; and a pull request that registers a code gets a status comment that lists its lane's steps and which have passed;
 - the design/03 change (section 10).
 
