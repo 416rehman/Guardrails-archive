@@ -1018,7 +1018,7 @@ Constraints. Each issue named below must meet its lines; this RFC does not desig
 - The slice-0 lint item: the `testkit` scan refuses a crate with the feature whose edition is below 2018.
 - The slice-0 lint item: the `testkit` scan compares the macro-expanded code of the conformance build with that of the program build and refuses a difference outside the fixture module and the hook statements.
 - #1535 and #312: a `Deferred` batch on a stream with no device lanes rewinds its partition or writes a durable skip record.
-- #1535 and #312: the outcome for a batch that `Events::append` refuses with `BatchHeader`, `BatchSchema` or `BatchUnreadable` is stated.
+- #1535 and #312: the outcome for a refused batch is stated, a batch that `Events::append` refuses with `BatchHeader`, `BatchSchema` or `BatchUnreadable` included.
 - The authentication middleware item and J-1: `control` consumers dispatch under a `Change` mint.
 - #298 and #312: `Fence`, `FencingToken` and `Lease` are defined under `tenant` and re-exported.
 - #312 and #1535: `LakeBatch` carries its partition, and `Events::append` refuses a fence of another partition.
