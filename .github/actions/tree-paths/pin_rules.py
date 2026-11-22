@@ -1,18 +1,20 @@
 """The workflow test is WorkflowTest in test_pinned_toolchain.py, with its reader workflow_reader.py and its rules
-pin_rules.py. It reads the files in WORKFLOWS and ACTION_FILES, and PIN_ACTION_FILE, and each of its rules is a
-text match. For a workflow or action in a form GitHub runs, it fails when, and claims to fail only when:
+pin_rules.py. It reads the working-tree copies of the files in WORKFLOWS and ACTION_FILES, and PIN_ACTION_FILE, and
+each of its rules is a text match. For a workflow or action in a form GitHub runs, whose working-tree copy is the
+committed file byte for byte, it fails when, and claims to fail only when:
 1. a job in a file in WORKFLOWS has an actions/checkout step, and the two steps after its first checkout are not
    the pin step and the write step;
-2. a file in WORKFLOWS or ACTION_DEFINITIONS, or PIN_ACTION_FILE, holds a layout, a character or a key the reader
-   does not read;
+2. a file in WORKFLOWS or ACTION_DEFINITIONS holds a layout, a character or a key the reader does not read, or
+   PIN_ACTION_FILE, read as text with CR and CRLF taken as line breaks, holds one;
 3. a file in WORKFLOWS or ACTION_DEFINITIONS holds a step, job, action or runs key outside the key sets in
    pin_rules.py, or a job's first checkout takes an input outside CHECKOUT_INPUTS;
 4. a file it reads holds a form that a fixture of the test expects it to refuse, in the place that fixture holds
    it, outside the declared allowlists.
 The fixtures are the list. The test claims nothing about a form no fixture expects it to refuse, even one of the
-same kind as a fixture's. It is a tripwire for drift and mistakes in workflow edits. Every file it reads is under
-.github/**, which is trust core, and review of an edit there by the trust-core evaluator set is the control
-against a hostile edit (design/02 TB-11, D-63).
+same kind as a fixture's. It claims nothing about a committed file whose working-tree copy differs from it. It is
+a tripwire for drift and mistakes in workflow edits. Every file it reads is under .github/**, which is trust core,
+and review of an edit there by the trust-core evaluator set is the control against a hostile edit (design/02
+TB-11, D-63).
 """
 
 import re
