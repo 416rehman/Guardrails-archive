@@ -1,0 +1,12 @@
+{
+  "repo": "example/repo",
+  "default_branch": "main",
+  "branches": ["main", "issue/5"],
+  "pulls": [
+    {"number": 505, "head": "issue/5", "head_repo": "example/repo", "body": "Refs #5"},
+    {"number": 506, "head": "patch-1", "head_repo": null, "body": "Fixes #5"}
+  ],
+  "expect": [
+    {"kind": "second-pull-request", "subject": "#5"}
+  ]
+}

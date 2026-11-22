@@ -1,0 +1,11 @@
+{
+  "repo": "example/repo",
+  "default_branch": "main",
+  "branches": ["main", "issue/7", "issue/8"],
+  "pulls": [
+    {"number": 108, "head": "issue/8", "head_repo": "example/repo", "body": "Refs #8"}
+  ],
+  "expect": [
+    {"kind": "no-pull-request", "subject": "issue/7"}
+  ]
+}

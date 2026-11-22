@@ -1,0 +1,12 @@
+{
+  "work_branch": "^issue/([1-9][0-9]*)$",
+  "closing_keyword": "\\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?):?\\s+#([1-9][0-9]*)\\b",
+  "reference_line": "^[ \\t]*refs[ \\t]+#([1-9][0-9]*)[ \\t]*$",
+  "exempt_from_name": [
+    {
+      "prefix": "dependabot/",
+      "why": "Dependabot names its own branches; the owner rule on #1875 exempts them from the issue/<n> name, not from having a pull request"
+    }
+  ],
+  "gh_output_limit_bytes": 268435456
+}
