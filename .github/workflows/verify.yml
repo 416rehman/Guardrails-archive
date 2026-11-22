@@ -5,7 +5,9 @@ name: verify
 # nightly run and a manual run cover Linux, macOS and Windows on GitHub's free standard runners
 # (owner instruction 28); a private copy falls back to Linux with no nightly run, because private
 # runner minutes are limited. Until a crate lands under crates/ or programs/ the workspace has no
-# members, Cargo refuses every command, and the Rust steps are skipped.
+# members, Cargo refuses every command, and the Rust steps are skipped. The plan job first runs
+# .github/actions/tree-paths/check_tree.py on the commit and reads the toolchain pin the Rust jobs
+# install.
 
 on:
   pull_request:
@@ -32,6 +34,10 @@ jobs:
       systems: ${{ steps.plan.outputs.systems }}
       run: ${{ steps.plan.outputs.run }}
       rust: ${{ steps.plan.outputs.rust }}
+      toolchain: ${{ steps.toolchain.outputs.RUSTUP_TOOLCHAIN }}
+      profile: ${{ steps.toolchain.outputs.TOOLCHAIN_PROFILE }}
+      components: ${{ steps.toolchain.outputs.TOOLCHAIN_COMPONENTS }}
+      targets: ${{ steps.toolchain.outputs.TOOLCHAIN_TARGETS }}
     steps:
       - uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
@@ -39,6 +45,12 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # A refused path fails this job, and every job that needs it is skipped.
+      - name: Check the paths of the commit's tree
+        run: python3 -I .github/actions/tree-paths/check_tree.py --rev HEAD
+      - name: Read the pinned toolchain from rust-toolchain.toml
+        id: toolchain
+        run: python3 -I .github/actions/tree-paths/pinned_toolchain.py rust-toolchain.toml >> "$GITHUB_OUTPUT"
       - id: plan
         env:
           GH_TOKEN: ${{ github.token }}
@@ -59,6 +71,21 @@ jobs:
             echo "run=$run"
             echo "rust=$rust"
           } >> "$GITHUB_OUTPUT"
+
+  tree-paths:
+    name: Tree, matcher and toolchain readers (seeded fixtures)
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: python3 -I -m unittest discover -s .github/actions/tree-paths -p "test_*.py" -v
 
   rust:
     needs: plan
@@ -82,7 +109,24 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - run: rustup toolchain install
+      - name: Pin the toolchain that rust-toolchain.toml names
+        env:
+          CHANNEL: ${{ needs.plan.outputs.toolchain }}
+          PROFILE: ${{ needs.plan.outputs.profile }}
+          COMPONENTS: ${{ needs.plan.outputs.components }}
+          TARGETS: ${{ needs.plan.outputs.targets }}
+        run: |
+          {
+            echo "RUSTUP_TOOLCHAIN=$CHANNEL"
+            echo "TOOLCHAIN_PROFILE=$PROFILE"
+            echo "TOOLCHAIN_COMPONENTS=$COMPONENTS"
+            echo "TOOLCHAIN_TARGETS=$TARGETS"
+          } >> "$GITHUB_ENV"
+      - run: >-
+          rustup toolchain install "$RUSTUP_TOOLCHAIN"
+          ${TOOLCHAIN_PROFILE:+--profile "$TOOLCHAIN_PROFILE"}
+          ${TOOLCHAIN_COMPONENTS:+--component "$TOOLCHAIN_COMPONENTS"}
+          ${TOOLCHAIN_TARGETS:+--target "$TOOLCHAIN_TARGETS"}
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}

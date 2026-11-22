@@ -4,7 +4,8 @@
 # clean contexts, cross-model review by the model that did not write it, and two independent
 # passing evaluators on different models (owner instruction 7). Read through
 # .claude/risk-tiers.toml by the grdr-work-issue skill and eval-tier.
-# Each line is a git :(glob) pathspec from the root; `**/` matches zero or more folders.
+# Each line is a git :(glob,icase) pathspec from the root, so ASCII case does not matter; `**/`
+# matches zero or more folders. .github/actions/tree-paths/trust_core_touched.py does the matching.
 # Module globs fix where that code lives inside its crate; moving the code means a change here.
 
 # eBPF programs
@@ -66,8 +67,12 @@ governance/**
 MAINTAINERS.md
 Cargo.toml
 Cargo.lock
-rust-toolchain.toml
-.cargo/**
+**/rust-toolchain.toml
+**/rust-toolchain
+**/.cargo/**
+# Build-time code: every build script, and the folder (`<dir>/**`) of each workspace package whose
+# library target is a proc-macro, listed by the change that adds that target
+**/build.rs
 **/deny.toml
 **/deny.*.toml
 **/.deny.toml
@@ -77,7 +82,10 @@ rust-toolchain.toml
 **/.cargo/deny.toml
 **/.cargo/deny.exceptions.toml
 **/clippy.toml
-rustfmt.toml
+**/.clippy.toml
+**/rustfmt.toml
+**/.rustfmt.toml
+**/.gitattributes
 architecture.toml
 surfaces.toml
 support.toml

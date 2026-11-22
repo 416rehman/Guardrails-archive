@@ -35,8 +35,9 @@ Your prompt names the issue `<n>`, its branch `issue/<n>` and your round, at mos
 
 ## Inputs
 - The path rules: `.claude/risk-tiers.toml` and `security/trust-core.paths`, read from `main`.
-  The floor is the highest tier whose paths the diff matches, or the issue's `tier:` label if
-  that is higher.
+  Every glob in them is a git `:(glob,icase)` pathspec from the root, so ASCII case does not
+  matter. The floor is the highest tier whose paths the diff matches, or the issue's `tier:`
+  label if that is higher.
 - The diff: `git diff origin/main...HEAD`.
 - The issue's write set and `tier:` and `trust-core` labels.
 
@@ -48,8 +49,18 @@ Your prompt names the issue `<n>`, its branch `issue/<n>` and your round, at mos
    the issue's write set.
 3. Until `lab/reviewer-evals/` holds 50 cases, low tier covers only docs and additive changes
    behind a flag; anything else at low is raised to medium.
-4. If the diff touches a path listed in `security/trust-core.paths`, raise it to trust core and
-   name the path.
+4. Decide whether the diff touches the trust core with the matcher, never by reading the list.
+   Run `main`'s copies of the matcher and the list:
+   ```
+   git fetch origin main
+   mkdir -p target/eval-tier
+   git show origin/main:security/trust-core.paths > target/eval-tier/trust-core.paths
+   git show origin/main:.github/actions/tree-paths/trust_core_touched.py > target/eval-tier/trust_core_touched.py
+   git show origin/main:.github/actions/tree-paths/check_tree.py > target/eval-tier/check_tree.py
+   python -I target/eval-tier/trust_core_touched.py --list target/eval-tier/trust-core.paths --diff origin/main HEAD
+   ```
+   Exit 1: raise it to trust core and name each path the matcher printed. Exit 0: no trust-core
+   path. Exit 2, or a `git show` that fails: verdict `cannot-evaluate`.
 5. Give one line of reason per raise, with `file:line`.
 
 ## Never

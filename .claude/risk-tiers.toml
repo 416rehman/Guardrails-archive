@@ -1,6 +1,8 @@
 # Which evaluators judge a change (team/02 section 10). The grdr-work-issue skill reads it to pick
 # the evaluators for an issue, and eval-tier reads it to raise a tier the path rules call for. The
-# highest matching tier wins. A tier may be raised, never lowered.
+# highest matching tier wins. A tier may be raised, never lowered. Every `paths` glob is a git
+# :(glob,icase) pathspec from the root, so ASCII case does not matter; `**/` matches zero or more
+# folders.
 [trust_core]
 paths_file = "security/trust-core.paths"     # design/02 owns the list
 # Owner instruction 7: a trust-core change lands only after passing evaluators on two models.
@@ -8,8 +10,9 @@ distinct_models = 2
 evaluators = ["eval-security", "eval-adversarial"]
 
 [high]
-paths = ["proto/**", "schema/**", "spec/**", "crates/grdr-{proto,schema,model,ports,wire}/**",
-         "AGENTS.md", "**/AGENTS.md", "**/REVIEW.md", "CLAUDE.md", ".claude/**", "specs/**", "Cargo.lock"]
+paths = ["proto/**", "schema/**", "spec/**", "crates/grdr-proto/**", "crates/grdr-schema/**",
+         "crates/grdr-model/**", "crates/grdr-ports/**", "crates/grdr-wire/**", "AGENTS.md",
+         "**/AGENTS.md", "**/REVIEW.md", "CLAUDE.md", ".claude/**", "specs/**", "Cargo.lock"]
 triggers = ["new_dependency", "major_bump", "public_api_change", "wire_or_pack_format_change",
             "unsafe_added", "fail_mode_change", "security_test_weakened", "essentials_or_failsafe_change",
             "acceptance_changed_after_spec"]
