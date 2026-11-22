@@ -1,0 +1,12 @@
+{
+  "repo": "example/repo",
+  "default_branch": "main",
+  "branches": ["main", "release-please--branches--main"],
+  "pulls": [
+    {"number": 831, "head": "release-please--branches--main", "head_repo": "example/repo", "body": "Release pull request from release-please."},
+    {"number": 832, "head": "release-please--branches--main", "head_repo": "example/repo", "body": "Release pull request from release-please, against another base."}
+  ],
+  "expect": [
+    {"kind": "second-pull-request", "subject": "release-please--branches--main"}
+  ]
+}

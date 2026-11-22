@@ -6,6 +6,10 @@
     {
       "prefix": "dependabot/",
       "why": "Dependabot names its own branches; the owner rule on #1875 exempts them from the issue/<n> name, not from having a pull request"
+    },
+    {
+      "name": "release-please--branches--main",
+      "why": "release-please keeps its one release pull request on this branch; #1893 exempts it from the issue/<n> name, not from having exactly one open pull request"
     }
   ],
   "gh_output_limit_bytes": 268435456

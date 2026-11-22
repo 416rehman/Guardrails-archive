@@ -60,8 +60,18 @@ test("every finding names the fix and where it is written", () => {
   }
 });
 
-test("Dependabot is the only exemption from the branch name", () => {
-  assert.deepEqual(loadRules(RULES_TEXT).exemptPrefixes, ["dependabot/"]);
+test("Dependabot's prefix and release-please's one branch are the only exemptions from the name", () => {
+  const rules = loadRules(RULES_TEXT);
+  assert.deepEqual(rules.exemptPrefixes, ["dependabot/"]);
+  assert.deepEqual(rules.exemptNames, ["release-please--branches--main"]);
+});
+
+test("an exemption names exactly one of prefix and name", () => {
+  for (const entry of [{ why: "neither" }, { prefix: "a/", name: "b", why: "both" }, { name: "", why: "empty" }]) {
+    const raw = JSON.parse(RULES_TEXT);
+    raw.exempt_from_name = [entry];
+    assert.throws(() => loadRules(JSON.stringify(raw)), /exempt_from_name/);
+  }
 });
 
 test("unreadable state exits 2, not 0", () => {

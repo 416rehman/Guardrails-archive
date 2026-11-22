@@ -1,14 +1,14 @@
 {
   "repo": "example/repo",
   "default_branch": "main",
-  "branches": ["main", "agent/10/a2", "issue/010", "issue/0", "issue/12-r2", "Issue/13", "release-please--branches--main"],
+  "branches": ["main", "agent/10/a2", "issue/010", "issue/0", "issue/12-r2", "Issue/13", "release-please--branches--main--components--grdr-core"],
   "pulls": [
     {"number": 201, "head": "agent/10/a2", "head_repo": "example/repo", "body": "Refs #10"},
     {"number": 202, "head": "issue/010", "head_repo": "example/repo", "body": ""},
     {"number": 203, "head": "issue/0", "head_repo": "example/repo", "body": null},
     {"number": 204, "head": "issue/12-r2", "head_repo": "example/repo", "body": "Refs #12"},
     {"number": 205, "head": "Issue/13", "head_repo": "example/repo", "body": "Refs #13"},
-    {"number": 206, "head": "release-please--branches--main", "head_repo": "example/repo", "body": "Release pull request."}
+    {"number": 206, "head": "release-please--branches--main--components--grdr-core", "head_repo": "example/repo", "body": "Release pull request."}
   ],
   "expect": [
     {"kind": "bad-name", "subject": "agent/10/a2"},
@@ -16,6 +16,6 @@
     {"kind": "bad-name", "subject": "issue/0"},
     {"kind": "bad-name", "subject": "issue/12-r2"},
     {"kind": "bad-name", "subject": "Issue/13"},
-    {"kind": "bad-name", "subject": "release-please--branches--main"}
+    {"kind": "bad-name", "subject": "release-please--branches--main--components--grdr-core"}
   ]
 }

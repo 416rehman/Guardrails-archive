@@ -20,11 +20,16 @@ function issuePattern(raw, key, flags) {
   return expression;
 }
 
+function isExemption(entry) {
+  const given = ["prefix", "name"].filter((key) => typeof entry?.[key] === "string" && entry[key]);
+  return given.length === 1 && !("prefix" in entry && "name" in entry);
+}
+
 export function loadRules(text) {
   const raw = JSON.parse(text);
   const exempt = raw?.exempt_from_name;
-  if (!Array.isArray(exempt) || !exempt.every((entry) => typeof entry?.prefix === "string" && entry.prefix)) {
-    throw new Error("branch-rules.json exempt_from_name needs a list of entries with a prefix");
+  if (!Array.isArray(exempt) || !exempt.every(isExemption)) {
+    throw new Error("branch-rules.json exempt_from_name needs a list of entries, each with either a prefix or a name");
   }
   if (!Number.isSafeInteger(raw.gh_output_limit_bytes) || raw.gh_output_limit_bytes <= 0) {
     throw new Error("branch-rules.json gh_output_limit_bytes needs a positive integer");
@@ -33,7 +38,8 @@ export function loadRules(text) {
     workBranch: issuePattern(raw, "work_branch", ""),
     closingKeyword: issuePattern(raw, "closing_keyword", "gi"),
     referenceLine: issuePattern(raw, "reference_line", "gim"),
-    exemptPrefixes: exempt.map((entry) => entry.prefix),
+    exemptPrefixes: exempt.filter((entry) => "prefix" in entry).map((entry) => entry.prefix),
+    exemptNames: exempt.filter((entry) => "name" in entry).map((entry) => entry.name),
     outputLimitBytes: raw.gh_output_limit_bytes,
   };
 }
@@ -100,18 +106,30 @@ function linkedIssues(pull, repo, rules) {
 }
 
 function branchFindings(state, rules) {
-  const heads = new Set(state.pulls.filter((pull) => pull.head_repo === state.repo).map((pull) => pull.head));
+  const pullsByHead = new Map();
+  for (const pull of state.pulls.filter((candidate) => candidate.head_repo === state.repo)) {
+    pullsByHead.set(pull.head, [...(pullsByHead.get(pull.head) ?? []), pull.number]);
+  }
   const found = [];
   for (const branch of state.branches.filter((name) => name !== state.default_branch)) {
-    if (!heads.has(branch)) {
+    const numbers = pullsByHead.get(branch) ?? [];
+    const isWorkBranch = rules.workBranch.test(branch);
+    if (numbers.length > 1 && !isWorkBranch) {
+      found.push({
+        kind: "second-pull-request",
+        subject: branch,
+        message: `${branch}: head of open pull requests ${numbers.map((n) => `#${n}`).join(", ")}. Keep one and close each other one with a comment naming it (${FIX_SECTION}).`,
+      });
+    }
+    if (numbers.length === 0) {
       found.push({
         kind: "no-pull-request",
         subject: branch,
         message: `${branch}: no open pull request. Open its draft pull request, or, when its issue is closed, record its last commit on the issue and delete the branch (${FIX_SECTION}).`,
       });
     }
-    const exempt = rules.exemptPrefixes.some((prefix) => branch.startsWith(prefix));
-    if (!exempt && !rules.workBranch.test(branch)) {
+    const exempt = rules.exemptNames.includes(branch) || rules.exemptPrefixes.some((prefix) => branch.startsWith(prefix));
+    if (!exempt && !isWorkBranch) {
       found.push({
         kind: "bad-name",
         subject: branch,
