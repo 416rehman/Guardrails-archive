@@ -224,10 +224,14 @@ function stateFrom(argv, rules) {
 
 // Links are GitHub's own closing references (every keyword form, owner/repo#n, issue URLs and the
 // Development sidebar) for issues of this repository, the head issue/<n>, and a line `Refs #n`.
+// A pull request by an exempt bot links through its head only: release-please renders commit
+// footers such as `Closes #n` into its changelog, and closing its pull request would only make
+// release-please open it again.
 function linkedIssues(pull, state, rules) {
   const issues = new Set();
   const head = pull.head_repo === state.repo ? rules.workBranch.exec(pull.head) : null;
   if (head) issues.add(head[1]);
+  if (isByExemptAuthor(pull, rules)) return issues;
   for (const issue of pull.closing_issues) if (issue.repo === state.repo) issues.add(String(issue.number));
   const body = (pull.body ?? "").replace(/\r\n?/g, "\n");
   for (const match of body.matchAll(rules.referenceLine)) issues.add(match[1]);
@@ -236,6 +240,10 @@ function linkedIssues(pull, state, rules) {
 
 function isByAuthor(pull, authors) {
   return authors.some((author) => author.login === pull.author?.login && author.type === pull.author?.type);
+}
+
+function isByExemptAuthor(pull, rules) {
+  return rules.exemptions.some((exemption) => isByAuthor(pull, exemption.authors));
 }
 
 function isExempt(branch, pulls, rules) {
