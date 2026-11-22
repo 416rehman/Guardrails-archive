@@ -5,22 +5,22 @@ Harness: Claude Code
 Model: claude-opus-5-5
 State: Review
 Design issue: #405
-Spine: D-05, D-15, D-20, D-41, D-60, D-61, D-71, P5, P8, P9, P14, P17 (no spine text changes)
-Surfaces: the public crates `grdr-fastpath` (its first surface), `grdr-fastpath-ffi` (where its `#[repr(C)]` structs live) and `grdr-core` (module `compile::fastpath`); a new `[[crate]]` row kind in `surfaces.toml`, with three rows, all `experimental`; proposed changes to the host contract (`c-abi.md` and `status-codes.toml`, including a new status and arena custody, and `tables.md` sections 6, 10, 11 and 13), carried by #246 and #245; proposals for `architecture.toml`, `limits.toml`, design/03, design/12 and design/26. No wire format, Cedar schema or same-layer edge changes
+Spine: D-05, D-10, D-15, D-20, D-22, D-41, D-60, D-61, D-71, P5, P8, P9, P14, P17 (no spine text changes)
+Surfaces: the public crates `grdr-fastpath` (its first surface), `grdr-fastpath-ffi` (where its `#[repr(C)]` structs live) and `grdr-core` (module `compile::fastpath`); a new `[[crate]]` row kind in `surfaces.toml`, with three rows, all `experimental`; proposed changes to the host contract (`c-abi.md` and `status-codes.toml`, including a new status, a new input field, the `GRDR_E_BUNDLE` row, and arena and input custody, and `tables.md` sections 2, 5, 6, 7, 10, 11 and 13), carried by #246 and #245; proposals for `architecture.toml`, `limits.toml`, design/03, design/12 and design/26; one bundle manifest field, left to its own RFC. No wire format, Cedar schema or same-layer edge changes
 Decision record: none yet
 
 To comment, write on issue #405 of this repository; you need no account on any service other than the code host. A security fix under embargo (D-62) may change a public surface without an RFC; open a retroactive RFC when the fix is disclosed.
 
-This is revision 3. It answers the round 2 verdicts of `eval-security` and `eval-architecture`, after revision 2 answered round 1 (Review). The comments "RFC 0005 revision 2" and "RFC 0005 revision 3" on #405 list every finding and where it went. The text below is normative on its own.
+This is revision 4. It answers the round 3 verdicts of `eval-security`, `eval-api`, `eval-architecture` and `eval-adversarial`, under the session's rulings on #405 (comment 7073341195) and its ruling 9 on #1710 (comment 7073495899). The comments "RFC 0005 revision 2", "RFC 0005 revision 3" and "RFC 0005 revision 4" on #405 list every finding and where it went. The text below is normative on its own.
 
 ## Summary
 This RFC fixes the Rust surface of the fast path: the types and functions of `grdr-fastpath`, the table layout module that `grdr-core` writes through, and `compile_fastpath` in `grdr-core`. It answers R1 to R7 of #405.
-- The library takes a safe, borrowed input and returns a verdict enum whose variants carry their own data, scope included.
+- The library takes a safe, borrowed input and returns a verdict enum whose variants carry their own data, scope included. A value the host could not resolve has a form of its own, apart from an absent one, and never gets a cacheable `pass`.
 - The `#[repr(C)]` mirrors of `grdr_fastpath.h` live in `grdr-fastpath-ffi`, because only that crate may read raw pointers.
-- The tables handle is generic over who owns the blob and the arena, so the daemon can own them in safe Rust and the C library can borrow them. Custody of both, the arena included, is a host obligation. What a call re-checks of that storage is a closed list, applied at the first read of what each check guards, and a change that keeps the list true is not detected.
-- A blob or arena that fails a re-check gets a new status, `GRDR_E_CHANGED`. The host then counts the floor as missing and reloads within a bound, with stated exits.
+- The tables handle is generic over who owns the blob and the arena, so the daemon can own them in safe Rust and the C library can borrow them. Custody of both, the arena included, and of each input for the length of its call, is a host obligation. What a call re-checks of that storage is a closed list, applied at the first read of what each check guards, and a change that keeps the list true is not detected.
+- A blob or arena that fails a re-check gets a new status, `GRDR_E_CHANGED`, and that handle never answers again. The host retires the handle with its cache generation, answers each action class with its declared failure outcome, and reloads within a bound, with stated exits.
 - Error variants are exempt from ARCH-017 one variant at a time. Each is bound to a status row through the FFI crate, and to a registered code through the daemon's floor module (#427).
-- The per-call cap and three other bounds travel in the blob header, written by the compiler from `limits.toml`, as #245 rules. A host checks them against its own ceilings.
+- The per-call cap and three other bounds travel in the blob header, written by the compiler from `limits.toml`, as #245 rules. A host checks them against its own ceilings. Only the signed bundle can lengthen verdict reuse to the end of its scope; a setting can only shorten it.
 - All three crates enter `surfaces.toml` as `experimental`, through a new `[[crate]]` row kind. No dependency or edge is added.
 
 ## Motivation
@@ -43,6 +43,8 @@ It was written against, and its decision rests on, exactly these blobs:
 - `c-abi.md` blob `b147c9dbd81068cd0d95cad4813bfee5e702fe30` and `status-codes.toml` blob `abcaa9704974359cdf7fac76712263b7b6f6f74b`, on `issue/246` at `ca039ed`;
 - the spine pin in force, blob `a80859235e7a2a4444648d6fa8d389d78dde6be9`, on `main` at `4e46c2c`.
 
+The names, units and keys of its `limits.toml` rows follow RFC 0007 revision 2 (blob `39616803a8292a6a19a40aa1cfefb98a1930a552`, on `issue/1710` at `b3774f0`) and the session's rulings 7 and 9 for that RFC's revision 3 (Unresolved question 3).
+
 Where `c-abi.md` at `ca039ed` and `tables.md` at `115ec8b` disagree, this RFC follows `tables.md` (Unresolved question 2). Round 3 of #245 failed on `115ec8b` (Unresolved question 1), so this text may need an amendment when #245 lands.
 
 Out of scope, as #405 says: the blob layout (#245), the C functions (#246), the shim's fail-safe table (#71) and the bounded hook-field scanner of design/07. The last two join `grdr-fastpath` later, each by an amendment of this RFC, with their own error enums (R4.6).
@@ -54,7 +56,7 @@ Out of scope, as #405 says: the blob layout (#245), the C functions (#246), the 
 // clippy::as_conversions)], no dependency, no alloc.
 pub mod layout;                                    // section 3
 
-pub struct Tables<B, A> { /* private: blob B, arena A, their validated lengths, a copy of the header */ }
+pub struct Tables<B, A> { /* private: blob B, arena A, their validated lengths, a copy of the header, the changed flag */ }
 
 pub fn arena_size(blob: &[u8]) -> Result<usize, Error>;
 pub fn load<B, A>(blob: B, arena: A) -> Result<Tables<B, A>, Error>
@@ -68,6 +70,7 @@ where B: AsRef<[u8]>, A: AsRef<[u8]>;
 
 impl<B, A> Tables<B, A> {
     pub fn header(&self) -> &layout::Header;                  // the copy every call reads
+    pub fn storage(&self) -> (&B, &A);                        // R1.12
     pub fn check_pairing(&self, labels: &Labels) -> Result<(), Error>   // R2.3 step 1
     where B: AsRef<[u8]>, A: AsRef<[u8]>;
     pub fn reason(&self, index: u32) -> Result<Reason<'_>, Error> where B: AsRef<[u8]>, A: AsRef<[u8]>;
@@ -77,12 +80,13 @@ impl<B, A> Tables<B, A> {
 pub struct Input<'a> {
     pub action_class: u16,            // tables.md section 1 numbers
     pub principal_kind: u16,          // Session 1, Process 2
-    pub exe_digest: Option<Digest>,
-    pub path: Option<Path<'a>>,       // already resolved by the host
-    pub dest: Option<Dest<'a>>,
+    pub exe_digest: Resolution<Digest>,
+    pub path: Resolution<Path<'a>>,   // resolved by the host (tables.md section 11)
+    pub dest: Resolution<Dest<'a>>,
     pub labels: Labels,
     pub grant_digest: Option<Digest>,
 }
+pub enum Resolution<T> { Absent, Unresolved, Resolved(T) }   // R2.3b
 pub struct Digest(/* private: [u8; 32], never all zero */);
 impl Digest { pub fn new(bytes: [u8; 32]) -> Option<Digest>; pub fn as_bytes(&self) -> &[u8; 32]; }
 pub enum Path<'a> { Utf8(&'a [u8]), Utf16Le(&'a [u8]) }    // bytes at any alignment
@@ -117,80 +121,109 @@ impl<'a, R: layout::Record> Records<'a, R> {
 
 pub enum Error { Arg(ArgFault), Abi, Bundle(BundleFault), State, Changed }
 pub enum ArgFault { Arena, ActionClass, PrincipalKind, Path, Destination, Reason }
-pub enum BundleFault { Rule(TvRule), EvalCap, TooLarge }
-pub struct TvRule(/* private: a rule number of tables.md section 5 */);
+pub enum BundleFault { Rule(TvRule), EvalCap }
+pub struct TvRule(/* private: a rule number of tables.md section 5 other than 3 */);
 impl TvRule { pub fn number(self) -> u8; }
-impl Error { pub fn rule(&self) -> Option<TvRule>; }      // TV-3 for Abi
+impl Error { pub fn rule(&self) -> Option<u8>; }          // 3 for Abi, n for Bundle(Rule(n))
 impl core::fmt::Display for Error;
 impl core::error::Error for Error;
 ```
 
 Types (R1):
 - R1.1. The crate is `#![no_std]` with no `alloc`, no dependency and `#![forbid(unsafe_code)]`. It denies `clippy::arithmetic_side_effects` and `clippy::as_conversions` at its root, so no cast can truncate silently. It builds for `wasm32-unknown-unknown` and every host triple (design/26 section 2, ARCH-003).
-- R1.2. `Input` is the safe form of `grdr_fp_input`. Its fields keep the names, numbers and meanings of `c-abi.md` section 2.1, with these differences:
+- R1.2. `Input` is the safe form of `grdr_fp_input`. Its fields keep the meanings and numbers of `c-abi.md` section 2.1, grouped where Rust groups them: `labels` holds `label_bits` and `labels_bundle_tag`, and `dest` holds the `dest_*` fields. The other differences:
   - `struct_size` is a C concern, and `process_key` is read by no row, so neither is here;
   - each pointer and length pair is a slice, and `path_encoding` and `dest_kind` become the variants of `Path` and `Host`;
-  - absence has one form, `None`: an all-zero C digest is `exe_digest: None` or `grant_digest: None`, and `path_len` 0 is `path: None`;
-  - a `Some` path with an empty slice is `Arg(Path)`, and so is a `Path::Utf16Le` slice of odd length. That slice holds the little-endian code units as bytes, so the FFI never builds an aligned `u16` slice from a host pointer.
-- R1.3. `Verdict` holds each pairing `tables.md` section 6 allows, and no other. `Pass` names no row. `Deny` and `StepUp` carry the winning row's index and its reason index (#412 R8). `StepUp` carries no scope, because its scope is always `none`. `Pass` is not `ALLOW` (design/26 section 2).
+  - each of the three resource inputs is a `Resolution`: `Absent` when the action has none, `Unresolved` when it has one the host could not resolve, and `Resolved` otherwise (R2.3b). In C, absence keeps its form (`path_len` 0, `dest_kind` 0, an all-zero digest), and a new field, `unresolved`, marks the second case (section 12). An all-zero C grant digest is `grant_digest: None`;
+  - a `Resolved` path with an empty slice is `Arg(Path)`, and so is a `Path::Utf16Le` slice of odd length. That slice holds the little-endian code units as bytes, so the FFI never builds an aligned `u16` slice from a host pointer.
+- R1.3. `Verdict` holds each pairing `tables.md` section 6 allows, and no other. `Pass` names no row. `Deny` and `StepUp` carry the winning row's index and its reason index (#412 R8). `StepUp` carries no scope, because its scope is always `none`, and a verdict over an `Unresolved` input has scope `None` whatever its outcome (R2.3b). `Pass` is not `ALLOW` (design/26 section 2).
 - R1.4. `CacheScope` carries the expiry inside the two scopes that have one, so the two meanings of `tables.md` section 6 never meet. `Call` and `None` are never reused. `Session` and `Bundle` carry `layout::Expiry`. The C numbers of scopes are the FFI's (section 5).
 - R1.5. `Error` has one variant per fast-path status: `Arg` is `GRDR_E_ARG`, `Abi` is `GRDR_E_ABI`, `Bundle` is `GRDR_E_BUNDLE`, `State` is `GRDR_E_STATE` and `Changed` is the new `GRDR_E_CHANGED` (section 12).
-  - `TvRule` names the failing rule, so a test can tell which rule failed (#409 R5).
-  - `BundleFault::EvalCap` is an input whose cost exceeds `eval_cap`. `BundleFault::TooLarge` is a blob whose arena size is above `isize::MAX` on this target.
+  - `TvRule` names the failing rule, so a test can tell which rule failed (#409 R5). It never holds 3. The crate builds a rule failure in one place, which gives `Abi` for TV-3 and `Bundle(Rule(n))` for every other rule `n` (`tables.md` section 5), so TV-3 has one representation. `Error::rule` returns the number for both.
+  - `BundleFault::EvalCap` is an input whose cost exceeds `eval_cap`.
   - `ArgFault::Reason` is a reason index that names no entry.
-  - `Changed` is a failed re-check of section 2.
+  - `Changed` is a failed re-check of section 2, or any later call on a handle that failed one (R2.12a).
 - R1.6. Every public enum is exhaustive, so a new variant fails the FFI crate's build until it maps to a status (section 5). `#[non_exhaustive]` would force a wildcard arm there.
-- R1.7. Formatting:
-  - `Error` and its fault types derive `Debug`, `Clone`, `Copy`, `PartialEq` and `Eq`, and carry structural values only, never input bytes.
-  - `Display` writes the same text as `Debug`: the variant path and its numbers, which are identifiers, not prose. With `Display`, `Error` implements `core::error::Error`. No other type implements `Display`, and the crate formats no text a person reads (`renders = "none"`; D-69). A host that reports a fast-path failure to a person does so under its own registered code (R4.3).
-  - A type that holds a `content` or `identifier` field implements no derived `Debug`. In `grdr-fastpath` those are `Input`, `Path`, `Dest`, `Host`, `Digest`, `Labels`, `Header` and the `layout` records that hold a digest, an address or a pool string. In `grdr-core` they are `Blob`, `FastpathOutput`, `Facts`, `DeviceFacts` and `Volume`. Each has a redacting `Debug` that prints field names and lengths only, so an assertion or a wrapped error cannot carry the value into a log. `Tables` and `Interest` print counts only. The types other items define for the floor report (R3.4) follow the same rule in those items.
+- R1.7. Derives and formatting. Every public type of both crates takes exactly the derives of this table. None derives `Hash`, `Default`, `PartialOrd` or `Ord`; adding a derive later is additive, so leaving one out costs nothing now. A redacting `Debug` prints field names and lengths or counts only, so an assertion or a wrapped error cannot carry a `content` or `identifier` value into a log.
+
+  | Crate | Types | Derives | `Debug` |
+  |---|---|---|---|
+  | `grdr-fastpath` | `Error`, `ArgFault`, `BundleFault`, `TvRule` | `Clone`, `Copy`, `PartialEq`, `Eq` | Derived |
+  | `grdr-fastpath` | `Verdict`, `Hit`, `CacheScope`, `ClassBits`, `Reason`; in `layout`, `Expiry`, `Nanos`, `Section`, `SectionEntry`, `PathEntry`, `PortRange`, `ReasonEntry` | `Clone`, `Copy`, `PartialEq`, `Eq` | Derived; every field is `structural` |
+  | `grdr-fastpath` | `Input`, `Resolution`, `Path`, `Dest`, `Host`, `Digest`, `Labels`; in `layout`, `Header`, `FloorRow`, `HostEntry`, `ExeEntry`, `ProcessScopeEntry` | `Clone`, `Copy`, `PartialEq`, `Eq` | Redacting; `Resolution` derives it over its value's redacting one |
+  | `grdr-fastpath` | `Interest`, `Records` | `Clone`, `Copy` | Redacting: counts only |
+  | `grdr-fastpath` | `Tables` | None | Redacting: counts only |
+  | `grdr-core` | `FastpathLimits`, `Narrowing`, `LimitRow`, `CaseRule` | `Clone`, `Copy`, `PartialEq`, `Eq` | Derived |
+  | `grdr-core` | `FloorReport`, `FloorEntry`, `FloorOutcome`, `FastpathCompileError` | `Clone`, `PartialEq`, `Eq` | Derived; every field is `structural` |
+  | `grdr-core` | `Facts`, `DeviceFacts`, `Volume` | `Clone`, `Copy` | Redacting |
+  | `grdr-core` | `FastpathOutput`, `Blob` | None | Redacting: lengths only |
+
+  - The types other items define and these types hold (`RuleId`, `Ineligible`, `EffectiveCompileError`, `PathContext`) take, in those items, the derives the rows above need, and the same `Debug` rule.
+  - `Error` and `FastpathCompileError` carry structural values only, never input bytes. The `Display` of each writes the same text as its `Debug`: the variant path and its numbers, which are identifiers, not prose. With `Display`, each implements `core::error::Error`, and the `source` of `FastpathCompileError::Effective` is the error it wraps. In `grdr-fastpath` no other type implements `Display`, and neither crate formats text a person reads (`renders = "none"`; D-69). A host that reports a fast-path failure to a person does so under its own registered code (R4.3).
 - R1.8. The `#[repr(C)]` structs of `grdr_fastpath.h` live in `grdr-fastpath-ffi`, not here (section 5). A struct holding raw pointers can be read only through `unsafe`, which this crate forbids. Keeping the structs in the FFI crate also keeps the C ABI's minor-version rule (trailing fields behind `struct_size`) apart from this crate's SemVer line (D-71). That answers RFC 0004's unresolved question 2 and its D10.
 - R1.9. `Tables<B, A>` is generic over who owns the blob and the arena.
-  - The FFI crate uses borrowed slices. The daemon, the first consumer, can own both, for example as `Box<[u8]>`, and keep the handle in safe Rust with no self-referential helper.
+  - The FFI crate uses a raw view type of its own (R1.12). The daemon, the first consumer, can own both, for example as `Box<[u8]>`, and keep the handle in safe Rust with no self-referential helper.
   - Whatever the owner, the handle holds both for as long as it lives. While it lives, its arena cannot be passed to another `load` (#409 R7; `tables.md` section 10).
-  - The host keeps both in custody, the arena as much as the blob (R2.14). What a call re-checks of that storage is section 2's.
+  - The host keeps both in custody, the arena as much as the blob (R2.14), and each input for the length of its call (R1.11a). What a call re-checks of that storage is section 2's.
 
 Functions (R2):
-- R2.1. `arena_size` applies TV-1 to TV-14 of `tables.md` section 5 in number order, then returns the arena size, computed from the header alone (`tables.md` section 7). The length TV-6 compares is `blob.len()`, compared in 64-bit arithmetic, so a blob longer than `u32::MAX` bytes fails TV-6 on every target. A size above `isize::MAX`, the largest slice any owner can hold, is `Bundle(TooLarge)`, on 32-bit targets as on 64-bit ones.
+- R2.1. `arena_size` applies TV-1 to TV-14 of `tables.md` section 5 in number order, then returns the arena size, computed from the header alone (`tables.md` section 7). The length TV-6 compares is `blob.len()`, compared in 64-bit arithmetic, so a blob longer than `u32::MAX` bytes fails TV-6 on every target. The size depends on `action_class_count` alone and is at most `8 * (action_class_count + 1)` bytes, so it is below 1 MiB for any header and fits `isize` on every target the crate builds for. It has no error of its own.
 - R2.2. `load` checks in this order:
   1. it applies TV-1 to TV-14;
   2. it checks the arena, and an arena shorter than `arena_size` is `Arg(Arena)`;
   3. it applies TV-15 to TV-33;
-  4. it builds its indices in the arena and returns the handle, with the two storage lengths and a copy of the header.
+  4. it builds its indices in the arena and returns the handle, with the two storage lengths, a copy of the header and a clear changed flag.
 
   It is never lazy. It writes only the arena, never copies the blob and allocates nothing. On any error the caller keeps the tables it had. `load` takes the blob and the arena by value, so an owning caller's new buffers are dropped on an error; `into_parts` returns them from a live handle.
 - R2.3. `eval` checks in this order and stops at the first failure:
-  1. `check_pairing`: RC1 of section 2, which is `Changed`, then a `labels.bundle_tag` that differs from the first eight bytes of the handle's `bundle_digest`, which is `State`;
-  2. the argument checks `tables.md` section 6 gives the library, each before any read of the blob or the arena:
+  0. a handle whose changed flag is set returns `Changed` (R2.12a);
+  1. the pairing checks: RC1 of section 2 on the views this call took, which is `Changed`; then a `labels.bundle_tag` that differs from the first eight bytes of the handle's `bundle_digest`, both read as little-endian `u64` (`tables.md` section 8), which is `State`;
+  2. the argument checks, each before any read of the blob or the arena:
      - an action class of 0 or above the ABI's highest is `Arg(ActionClass)`;
      - a principal kind of 0 or above `principal_kind_count` is `Arg(PrincipalKind)`;
-     - a path whose code units exceed `path_max_units` is `Arg(Path)`, checked before the path is decoded; so is a path not well formed or not in the form section 6 checks;
-     - a destination name that is empty, longer than `layout::NAME_MAX_BYTES` or not in the canonical form of section 3.3 is `Arg(Destination)`;
+     - a `Resolved` path whose code units exceed `path_max_units` is `Arg(Path)`, checked before the path is decoded; so is one that fails the form of R2.3a;
+     - a `Resolved` destination name that is empty, longer than `layout::NAME_MAX_BYTES` or not in the canonical form of `tables.md` section 3.3 is `Arg(Destination)`;
   3. an action class within the ABI but above `action_class_count`, which returns `Pass { scope: None }` with no cost check, no class bits and no read of the blob or the arena;
-  4. the cost, which reads the class's run from the arena and each path pattern's length from the pool; a cost above `eval_cap` is `Bundle(EvalCap)`, before any matching;
-  5. evaluation by `tables.md` section 6.
+  4. the cost, which reads the class's run from the arena and each path pattern's length from the pool, and counts an `Unresolved` input as R2.3b says; a cost above `eval_cap` is `Bundle(EvalCap)`, before any matching;
+  5. evaluation by `tables.md` section 6 and R2.3b.
 
-  Steps 4 and 5 read storage. Each re-check of section 2 applies at the first read of what it guards, in whichever step that read happens (R2.12). So a run index or a pattern that fails its re-check gives `Changed` at step 4, never `Bundle(EvalCap)`. `check_pairing` is step 1 on its own: `eval` and `classify` call it first, and the FFI calls it before its own field and length checks (R1.11), so C and Rust give one answer for one input. An input gets the same `Arg` answer whatever the vocabulary of the tables. `eval` reads only the tables and the input, writes nothing but its return value, and never returns a verdict on a failure.
-- R2.4. `classify` makes steps 1 to 4 of R2.3, then returns the class bits of `tables.md` section 6. For the class of step 3 it returns `Ok(None)`, since no class bits are computed for it. Its step 4 reads the run as `eval`'s does, so it makes RC2. It never returns partial bits. #20 AC-2 holds it against `grdr-core`'s classifiers, so it is public.
-- R2.5. `interest` returns the four interest tables and the string pool as views into the blob (`tables.md` section 3.5). Their places come from the handle's header copy, so only RC1 can fail it, as `Changed`.
-- R2.6. `eval`, `classify`, `interest`, `reason` and `check_pairing` take `&Tables`. `Tables<B, A>`, `Interest` and `Records` are `Send` and `Sync` whenever `B` and `A` are. The crate holds no interior mutability and no global or thread-local state. So any number of threads may evaluate the same tables at once (design/26 section 2).
-- R2.7. `reason` returns the reason code and the instantiated rule id of one entry of the reason-code table. An index at or above the table's count is `Arg(Reason)`, and a failed RC1, RC5 or RC6 is `Changed`. A Rust host takes the rule id it records from here, so it never reads the blob's layout itself (P17).
+  Step 1 is one private function that takes the two views. `eval` and `classify` take their one view of each storage and pass those views to it, so they make RC1 on the views they read (R2.10). `check_pairing` is that function's public form: it takes its own views and calls it. The FFI calls `check_pairing` before its own field and length checks and then `eval` (R1.11), which is two library calls, each with one view of each storage. So C and Rust give one answer for one input.
+
+  Steps 4 and 5 read storage. Each re-check of section 2 applies at the first read of what it guards, in whichever step that read happens (R2.12). So a run index or a pattern that fails its re-check gives `Changed` at step 4, never `Bundle(EvalCap)`. An input gets the same `Arg` answer whatever the vocabulary of the tables. `eval` reads only the tables and the input. It writes nothing but its return value and, when it returns `Changed`, the handle's changed flag, and it never returns a verdict on a failure.
+- R2.3a. The path form the library checks. The one scan of R5.4 checks these, after the length check and before any match, and a `Resolved` path that fails one is `Arg(Path)`:
+  - it is well formed in its encoding: UTF-8 with no overlong form, no surrogate code point and nothing above U+10FFFF, or UTF-16LE with no unpaired surrogate;
+  - it holds no U+0000;
+  - it is `/` alone, or `/` followed by segments joined by single `/` characters, with no trailing `/`, where no segment is empty, `.` or `..`.
+
+  That is the whole of the form the library checks, in `eval`, `classify` and the FFI alike. The rest of `tables.md` section 11's path form (link resolution, the Windows forms, normalisation form C and the volume's case mapping) is the host's alone. The library cannot see it, and answers a path given in another form as given. `fastpath_path_form` (#412) holds one table of vectors, each in both encodings, and #418's differential runs the same table through `grdr_fp_eval`. Accepted vectors include `/`, `/a/b`, `/a.b/..c`, `/A`, a path not in normalisation form C and `/a\b`. Refused ones include `a`, `//`, `/a/`, `/a//b`, `/./a`, `/a/.`, `/a/..`, `/a/../b`, a U+0000 anywhere, an overlong or surrogate UTF-8 sequence and an unpaired UTF-16 surrogate.
+- R2.3b. Absent and unresolved (D-10, P9). The two are different facts, and the second is never a cacheable `pass`.
+  - `Absent` means the action has no such value: no target path, no destination, or no executable digest the host supplies. It contributes no class bits, as `tables.md` section 6 says today.
+  - `Unresolved` means the action has the value and the host could not resolve it, which is D-10's `unresolved`. It contributes every class bit its classifier can set: `1 << class_bit` of every path entry, or the `class_mask` of every host entry, or of every executable entry. Rows then match as `tables.md` section 6 says, so a `deny` row the value could meet denies and a `step_up` row steps up. The floor never answers weaker than its rows for a value the host could not see.
+  - A verdict over any `Unresolved` input has scope `none`, whatever its outcome, so it never reaches a cache.
+  - The cost counts one step per entry of each classifier an `Unresolved` input reads, in place of that classifier's term in `tables.md` section 7. An `Unresolved` path is not scanned.
+  - `classify` returns the bits this rule gives.
+  - A host's own `malformed` result is neither form. The host denies it before it calls, as D-10 says.
+- R2.4. `classify` makes steps 0 to 4 of R2.3, then returns the class bits of `tables.md` section 6 and R2.3b. For the class of step 3 it returns `Ok(None)`, since no class bits are computed for it. Its step 4 reads the run as `eval`'s does, so it makes RC2. It never returns partial bits. #20 AC-2 holds it against `grdr-core`'s classifiers, so it is public.
+- R2.5. `interest` returns the four interest tables and the string pool as views into the blob (`tables.md` section 3.5). Their places come from the handle's header copy, so only the changed flag and RC1 can fail it, as `Changed`.
+- R2.6. `eval`, `classify`, `interest`, `reason` and `check_pairing` take `&Tables`. `Tables<B, A>`, `Interest` and `Records` are `Send` and `Sync` whenever `B` and `A` are. The handle's one piece of interior mutability is its changed flag (R2.12a), a `core::sync::atomic::AtomicU8` that only ever goes from clear to set. The crate holds no other interior mutability and no global or thread-local state. So any number of threads may evaluate the same tables at once (design/26 section 2), and every function is deterministic while the storage is unchanged.
+- R2.7. `reason` returns the reason code and the instantiated rule id of one entry of the reason-code table. An index at or above the table's count is `Arg(Reason)`, and a set changed flag or a failed RC1, RC5 or RC6 is `Changed`. A Rust host takes the rule id it records from here, so it never reads the blob's layout itself (P17).
 - R2.8. Every value a call reads from the header (counts, offsets, `eval_cap`, the vocabulary sizes, the expiries and `bundle_digest`) comes from the copy `load` kept, never from the blob again.
 
 ### 2. What a call re-checks (R2)
 The storage the handle holds can change after `load`. In safe Rust a type with interior mutability can return other bytes from `as_ref()`. Through the FFI, host memory is behind raw pointers. Re-running the TV rules per call is not open: each rule is linear in the blob's length (`tables.md` section 5), and a call is bounded by the rows it touches (`tables.md` section 7). So the property is this:
-- R2.9. For any bytes the storage returns, at any time, every function is free of panics, reads only inside the views of R2.10, and does no more work than the cost bound of `tables.md` section 7 plus one scan of the input path.
-- R2.10. Each function takes one view of each storage per call, one `as_ref()` of the blob and one of the arena, and reads only those views. RC1 holds for exactly those views. A read that would fall outside a view is `Changed`, never a default value such as an empty run.
-- R2.11. The arena holds the per-action-class run index and nothing else, besides the FFI's handle (R1.12). An index added to the arena later is an amendment that adds its re-check here.
+- R2.9. For any bytes the storage returns, at any time, every function is free of panics, reads only inside the views of R2.10, and does no more work than the cost bound of `tables.md` section 7 plus one scan of the input path. In C this holds while the handle record of R1.12 is unchanged, or changed in a way its check detects. A write to the record that keeps its check true is outside this property (R2.13).
+- R2.10. Each function takes one view of each storage per call, one `as_ref()` of the blob and one of the arena, and reads only those views; `eval` and `classify` pass theirs to the pairing checks (R2.3). RC1 holds for exactly those views. A read that would fall outside a view is `Changed`, never a default value such as an empty run.
+- R2.11. The arena holds the per-action-class run index and nothing else, besides the FFI's handle record (R1.12). An index added to the arena later is an amendment that adds its re-check here.
 - R2.12. A function returns `Changed` when one of these re-checks fails. Each re-check applies at the first read of what it guards, in every step of every entry point, and never after a result computed from what it guards:
-  - **RC1, storage lengths.** The blob view's length equals the length `load` validated, and the arena view's length is at least the size `load` used. Every function makes this check first, inside `check_pairing` for `eval` and `classify`.
+  - **RC1, storage lengths.** The blob view's length equals the length `load` validated, and the arena view's length is at least the size `load` used. Every function makes this check first, inside the pairing checks for `eval` and `classify`. In C the views come only from the handle record `grdr_fp_load` wrote at validation, after the record passes its own check (R1.12). They never come from any other value the host passes.
   - **RC2, run index.** At the first read of an action class's run, in the cost step and in evaluation, the run lies inside the floor-row section. Where they exist, the row just before the run has a lower action class, and the row just after it a higher one. The run's first and last rows have the run's class. `load` writes a class with no rows as an empty run at the position its rows would sit. TV-27 sorts rows by class, so with an unchanged blob any change to a run entry, an emptied run included, fails this check. It costs at most four row reads per call. `eval` and `classify` make this check.
   - **RC3, rows touched.** Each row of the run has the run's action class, an outcome of 2 or 3, a principal kind at most `principal_kind_count`, and a reason below the reason table's count (TV-26 and TV-28 to TV-30, on those rows). `eval` makes this check.
   - **RC4, entries touched.** Each host entry read has a kind of 1 to 5 (TV-16), and a `prefix_len` of at most 32 for kind 3 and at most 128 for kind 4 (TV-22's bound), before the prefix indexes the address. Each path entry read has a class bit of at most 63 (TV-24). `eval` and `classify` make this check.
   - **RC5, pool references.** Each pool reference a call follows, including each pattern whose length the cost step counts, lies inside the pool. `eval`, `classify` and `reason` make this check.
   - **RC6, strings.** Each string a call decodes, including each pattern whose characters the cost step counts, is what TV-19 allows for it: valid UTF-8, UTF-16LE that decodes, or visible ASCII for a reason code or rule id. `eval`, `classify` and `reason` make this check.
-- R2.13. A change that keeps every re-check true is not detected, and the call answers from the changed bytes. With RC2 as stated, such changes are blob changes: a row's outcome moved from 2 to 3, a label or class bit, a grant digest, an entry moved inside its section, and an order that TV-25 or TV-33 held. In C they are also changes to the handle, whose stored lengths, header copy and slice addresses are the references the re-checks compare against. Custody is the only defence against both, and the re-checks catch accident, not intent.
-- R2.14. Custody covers the blob and the whole arena. The host keeps both, the handle included, in memory no less privileged process can write. They stay unchanged from `load` until the host's quiescence point after it retires the tables. Today `tables.md` section 11 states custody for the blob only, and `c-abi.md` says only that the blob and arena "must outlive the tables". Section 12 gives #245 and #246 the text that widens both. In the FFI the slices rest on that promise, which is the safety invariant of R1.12. A host that breaks it gets no claim beyond accident.
+- R2.12a. `Changed` is sticky. The first time a function returns `Changed` on a handle, it sets the handle's changed flag. From then on, every call on that handle that starts after that one returned, on any thread, returns `Changed` from every function, `check_pairing` included, before any other check, even when the storage reads valid again. The flag is never cleared, and only a new `load` gives a handle that answers. A call already running when the flag is set may return its own result, which section 2a has the host discard. The flag reads as set for any non-zero value, so a corrupted flag errs toward `Changed`. In C the record carries a second flag of the same kind, for a failed record check (R1.12).
+- R2.13. A change that keeps every re-check true is not detected, and the call answers from the changed bytes. With RC2 as stated, such changes are blob changes: a row's outcome moved from 2 to 3, a label or class bit, a grant digest, an entry moved inside its section, and an order that TV-25 or TV-33 held. In C, a write to the handle record that keeps its check true can point the views at any memory, so the library reads bytes no TV rule has checked. That is outside R2.9: the result can be a wrong verdict or a fault in the host process. Custody is the only defence against both. The re-checks and the record's check catch accident, not intent.
+- R2.14. Custody covers the blob and the whole arena. The host keeps both, the handle record included, in memory no less privileged process can write. They stay unchanged from `load` until the host's quiescence point after it retires the tables. Today `tables.md` section 11 states custody for the blob only, and `c-abi.md` says only that the blob and arena "must outlive the tables". Section 12 gives #245 and #246 the text that widens both, and the text that gives the host the same duty for each input during its call (R1.11a). In the FFI the slices rest on that promise, which is the safety invariant of R1.12. A host that breaks it gets no claim beyond accident.
 
 A sealed storage trait cannot make this a type:
 - a trait can promise unchanged bytes to the compiler only as an `unsafe trait`, which `forbid(unsafe_code)` refuses;
@@ -202,21 +235,47 @@ So the property stays with custody, and the re-checks are a closed list that tes
   - one per re-check, `fastpath_changed_rc1` to `fastpath_changed_rc6`, each breaking exactly that re-check and expecting `Changed` from every function that makes it;
   - for RC2, `fastpath_changed_rc2_cost`, where the altered run would also exceed `eval_cap` and the answer is `Changed`, not `Bundle(EvalCap)`, from `eval` and `classify`; and `fastpath_changed_rc2_empty`, which empties a run that has rows;
   - for RC4, an entry whose `prefix_len` is above its kind's bound;
-  - `fastpath_one_view`, with a storage that counts its `as_ref()` calls and returns a shorter slice on the second, expecting one call per storage per function call;
-  - `fastpath_changed_undetected`, which moves a row's outcome from 2 to 3 and expects the new verdict and no error, so R2.13 is a tested fact.
+  - `fastpath_one_view`, with a storage that counts its `as_ref()` calls and returns a shorter slice on the second, expecting one call per storage per function call, `eval` and `classify` included;
+  - `fastpath_changed_sticky`, with a storage that reads changed on one call and valid on every later one, expecting `Changed` from every function on every later call;
+  - `fastpath_changed_undetected`, which moves a row's outcome from 2 to 3 and expects the new verdict and no error, so R2.13 is a tested fact;
+  - `fastpath_no_false_changed`: for every blob `load` accepts in #409's and #412's fixture and generated sets, and every input drawn for it, no function gives `Changed` on unchanged storage. Seeded inputs sit at each boundary: `prefix_len` 32 and 128, `class_bit` 63, the first and last row of every run, empty runs, and the first and last class of the vocabulary.
 
 ### 2a. The host after `Changed` (R2)
-`Changed` means the tables the handle reads are no longer the ones `load` validated. The status's `handle_after`, `reload-required`, names a host state with these exits. A host's floor state is an explicit state type (design/03 section 10). Our daemon's is #427's, and a partner host's follows the same rules through the contract text of section 12.
-- R2.16. On `Changed` the host stops using that handle at once: no further call takes it. It keeps the old interest filters installed, so selection never shrinks (`tables.md` section 10). It frees the old blob and arena only after its quiescence point, when no call on them can still be running.
-- R2.17. Until a load succeeds the floor counts as missing, as it does at start with no tables, and the device is Degraded. The host contract's minimum is that fail-closed classes deny and the others take their class's `on_failure`. Our daemon answers as #427 R8 does, every class denying with `degraded_reason` `floor-missing`. No answer comes from the dropped handle, so the device is never left unprotected (design/12 E3.3).
-- R2.18. The host reloads from a fresh copy that it verifies again from its source. That is the signed envelope it accepted, or for our daemon a fresh compile instance (#1538), and never the private copy that changed. Reloading follows a named retry policy, `[retry.fastpath-reload]` in `limits.toml`, so the number of attempts and the time they take are bounded (design/03 section 10).
-- R2.19. The exits from the floor-missing state:
-  - a load that succeeds and passes the host's ceilings and binding checks returns the host to serving with the new handle, and Degraded clears unless another cause holds it;
-  - a load that fails, with `GRDR_E_BUNDLE`, `GRDR_E_ABI` or a host refusal, stays floor-missing and tries again under the policy. A failed reload never returns to the dropped handle, so `last-known-good` here means no tables, because the dropped tables are not good;
-  - `Changed` again on a fresh copy of the same envelope ends reloading. The cause is then a defect in `load` or the library, not custody, so the host stays floor-missing and reports it under its own code;
-  - an exhausted retry policy ends reloading in the same way, with its own code;
-  - a new bundle activation (#1538), or a restart of the host, is the exit from a state where reloading has ended.
-- R2.20. `fastpath_reload` (#427) tests each transition of R2.16 to R2.19 with an injected clock and a storage that changes: a successful reload, a reload that fails a TV rule, `Changed` on a fresh copy of the same envelope, an exhausted policy, and a new activation. For each it asserts the floor-missing answers, the Degraded state, the codes reported, and that the old handle is never called again.
+`Changed` means the tables the handle reads are no longer the ones `load` validated, and the handle never answers again (R2.12a). The status's `handle_after`, `reload-required`, names the host state this section sets out. A host's floor state is an explicit state type (design/03 section 10). Our daemon's is #427's, and a partner host's follows the same rules through the contract text of section 12.
+- R2.16. On `Changed` the host retires the handle at once:
+  - no further call takes it;
+  - its cache generation stops being current, and the host reads no verdict cached under it again. While the floor is missing the host reads no floor generation at all;
+  - a call on that handle that was already running returns into a state that no longer serves it. The host discards its result, inserts nothing into the cache, and answers that action as R2.17 says;
+  - a reload's handle gets a new generation, and a generation number is never reused, so no entry of the retired one can become current again (`tables.md` section 10).
+
+  The host keeps the old interest filters installed, so selection never shrinks (`tables.md` section 10). It frees the old blob and arena only after its quiescence point, when no call on them can still be running.
+- R2.17. Until a load succeeds the floor counts as missing, and the device is Degraded. Every floor lookup the host makes in that state gets the answer of a floor that cannot answer, which is the action class's declared `on_failure` from the verified bundle the host still holds (D-15; design/03 section 4 item 2 and section 10, Errors; ADR-0012). A class whose `on_failure` is `closed` denies. A class whose `on_failure` is `open` goes on as after a floor `pass`: to the content engine, or, when the engine cannot answer, to the outcome its pack declares for loss of sensor.
+  - Our daemon gives these answers through the path #427 R5 uses when the engine cannot answer, with `degraded_reason` `floor-missing`, so "the floor cannot answer" has one answer path (P17). Answers the engine gives in time are unchanged.
+  - #427 R8's deny-all stays for the one state with no tables and no loaded pack: a start before any tables were adopted (R2.19). There the device has no declared failure policy to follow.
+  - No answer comes from the retired handle or its generation (R2.16), so the device keeps its declared failure policy throughout (design/12 E3.3).
+  - A stricter answer after a custody fault would be a per-class or per-pack setting with D-15's default, added by its own item. This RFC adds none.
+- R2.18. The host reloads from a fresh copy that it verifies again from its source. That is the signed envelope it accepted, or for our daemon a fresh compile instance (#1538), and never the private copy that changed. The first attempt starts at once on entering floor-missing. Between attempts the host follows a named retry policy, `[retry.fastpath-reload]` in `limits.toml`, whose call timeout ends an attempt whose source does not answer, such as a compile instance that hangs, and whose give-up and breaker bound the rest (design/03 section 10). Design/26 owns the policy and sets its kind and values, which are `limits.toml` rows (section 12).
+- R2.19. Episodes and exits.
+  - An episode opens when a handle that is serving with no episode open returns `Changed`. It records the SHA-256 of that handle's blob, which the host computes over its private copy at load.
+  - While an episode is open, a handle that a reload loaded is on probation until it has served for `fastpath.reload-settle`, a `limits.toml` row in `ms`. Then the episode closes and the policy refills.
+  - A `Changed` from a handle on probation is a repeat. A repeat raises a finding of class tamper (D-22) beside its code, because its cause is either a defect in `load` or the library or a continuing write to the host's memory, and the host cannot tell which. A repeat on a blob whose SHA-256 equals the episode's also ends reloading, since a fresh copy would give the same bytes again.
+
+  | State | Event | Next state |
+  |---|---|---|
+  | No tables, no loaded pack | A load succeeds and passes the host's ceilings and binding checks | Serving, no episode |
+  | No tables, no loaded pack | A load fails or is refused | Unchanged; every class still denies (#427 R8) |
+  | Serving, no episode or on probation | A new bundle activation (#1538) | Adopted, by the swap of `tables.md` section 10: serving, no episode. Refused: unchanged |
+  | Serving, no episode | `Changed` | Floor-missing, reload pending, a new episode; the first attempt starts at once |
+  | Serving, on probation | `Changed` (a repeat) | Floor-missing with a tamper finding. Reloading ends when the blob's SHA-256 equals the episode's; otherwise it stays pending, under the same policy, which is not refilled |
+  | Serving, on probation | The handle has served `fastpath.reload-settle` | Serving, no episode; the policy refills |
+  | Floor-missing, reload pending | A load succeeds and passes the checks | Serving, on probation |
+  | Floor-missing, reload pending | A load fails, with `GRDR_E_BUNDLE`, `GRDR_E_ABI` or a host refusal | Floor-missing, reload pending; the next attempt follows the policy. Never the retired handle: tables that returned `Changed` are never last-known-good |
+  | Floor-missing, reload pending | The policy gives up | Floor-missing, reloading ended |
+  | Floor-missing, pending or ended | A new bundle activation (#1538) | Its tables are tried at once, before any further attempt. Adopted: serving, no episode, and the remaining attempts are cancelled. Refused: floor-missing as it was before the activation |
+  | Any | A restart of the host | No tables, no loaded pack, until #1538 adopts tables |
+
+  The daemon reports a code on entering floor-missing, on a repeat and when the policy gives up (R4.3), and each keeps the device Degraded.
+- R2.20. `fastpath_reload` (#427) tests each transition of R2.19 with an injected clock and a storage that changes. For each it asserts the answers, the Degraded state, the codes and findings reported, that the retired handle is never called again, and that no verdict cached under its generation, or returned by a call that was running at the transition, answers an action (R2.16). The cases include a successful reload, a reload that fails a TV rule, a repeat on the same bytes, which ends reloading, a repeat on other bytes, a reloaded handle that passes probation and later gives `Changed`, which opens a new episode with a full policy, an exhausted policy, an activation while pending, both adopted and refused, and an activation after reloading ended. `fastpath_reload_cache` caches a `pass` of scope `bundle` and starts a call that returns after `Changed`, and expects neither to answer while the floor is missing. `fastpath_reload_loop_stops` uses a storage that fails the same way on every copy and expects reloading to end at the first repeat.
 
 ### 3. The table layout (R1, R3)
 `grdr_fastpath::layout` is the one definition of the blob's layout that the writer and the reader share. It holds:
@@ -227,7 +286,7 @@ So the property stays with custody, and the re-checks are a closed list that tes
 - `Record`, a sealed `Copy + 'static` trait implemented by each record type, which gives the record size and decodes one record. It is sealed by a private supertrait, so no other crate can claim a type is a table record;
 - `encode` and `decode` for the header and every record, over byte arrays of the exact size, with no validation, which is `load`'s;
 - `Expiry`, which is `ScopeEnd` or `After(Nanos)`, where `Nanos` refuses 0 and the all-ones value, with the header mapping of `tables.md` sections 2 and 6;
-- the cost function of `tables.md` section 7, which `eval` applies to the input and the compiler to its worst case, so the formula exists once.
+- the cost function of `tables.md` section 7, with the terms of R2.3b for `Unresolved` inputs, which `eval` applies to the input and the compiler to its worst case, so the formula exists once.
 
 Rules:
 - R3.1. Of `grdr-core`, only module `compile::fastpath` imports `grdr-fastpath`, and only `layout`: its types, its constants, `encode` and `decode`, and the cost function. That is what "table layout only" on the `grdr-core` to `grdr-fastpath` edge means (design/03 section 2), and the edge text names the cost function (section 12). Tests of `grdr-core` (#20, #414) may also call `load`, `eval` and `classify`, the blob's real consumer. The other edges into `grdr-fastpath` are unchanged:
@@ -246,7 +305,7 @@ Rules:
 
 ```rust
 // grdr_core::compile::fastpath
-use grdr_fastpath::layout::Expiry;
+use grdr_fastpath::layout::Nanos;
 
 pub fn compile_fastpath(
     bundle: &VerifiedBundle,
@@ -263,11 +322,16 @@ pub struct DeviceFacts<'a> { pub templates: &'a PathContext, pub volumes: &'a [V
 pub struct Volume<'a> { pub mount: &'a [u8], pub case: CaseRule }
 pub enum CaseRule { Sensitive, Insensitive, Unknown }
 
-pub struct FastpathLimits { /* private: the four header values */ }
+pub struct FastpathLimits { /* private: the cap, the path bound and each scope's expiry bound */ }
 impl FastpathLimits {
     pub fn from_limits() -> Result<FastpathLimits, FastpathCompileError>;
-    pub fn new(eval_cap_steps: u32, path_max_units: u32, expiry_bundle: Expiry,
-               expiry_session: Expiry) -> Result<FastpathLimits, FastpathCompileError>;
+    pub fn narrow(self, to: Narrowing) -> Result<FastpathLimits, FastpathCompileError>;
+}
+pub struct Narrowing {
+    pub eval_cap: Option<u32>,
+    pub path_max_units: Option<u32>,
+    pub expiry_bundle: Option<Nanos>,
+    pub expiry_session: Option<Nanos>,
 }
 
 pub struct FloorReport { /* private: entries in rule-id order */ }
@@ -291,7 +355,9 @@ pub enum FastpathCompileError {
     TooLarge,                          // the blob or a section would pass 4,294,967,295 bytes
     Limit(LimitRow),
 }
-pub enum LimitRow { EvalCapSteps, PathMaxUnits, ExpiryBundle, ExpirySession }
+pub enum LimitRow { EvalCap, PathMax, ExpiryBundle, ExpirySession }
+impl core::fmt::Display for FastpathCompileError;
+impl core::error::Error for FastpathCompileError;
 ```
 
 - R3.3. `compile_fastpath` runs steps 1 to 7 of design/12 section 7 on the verified bundle. It then writes step 8's fast-path blob in the canonical form of `tables.md` section 4, through `grdr_fastpath::layout` only. It is pure and deterministic: one bundle, one set of facts and one set of limits give the same bytes on every target for one compiler version (D-05; R6.6). The effective-policy compiler of #71 writes its step 8 blob by calling this function, so the blob has one writer.
@@ -305,14 +371,14 @@ pub enum LimitRow { EvalCapSteps, PathMaxUnits, ExpiryBundle, ExpirySession }
   - a change of the device's volumes is a change of its facts, and the host compiles again (#1538).
 
   `Facts::Relay` is a partner relay compile with no per-device facts. It sets every bit of `path_fold_classes` and compiles no rule whose pattern holds a template (`tables.md` section 9). `DeviceFacts` is the device-facts input of design/12's `compile(layers, packs, device_facts)`, so #71 takes the same type (P17).
-- R3.6. `FastpathLimits` carries the four header values the compiler writes.
-  - `from_limits` reads the four `limits.toml` rows of #1768 through `grdr-schema`'s generated limits module (#279).
-  - `new` lets a caller compile to a lower cap, which is how a host compiles to its own ceiling (R5.3) and how a test meets the cap.
+- R3.6. `FastpathLimits` carries the four header values the compiler writes, under the source rules of R5.2a.
+  - `from_limits` reads the four `limits.toml` rows of #1768 through `grdr-schema`'s generated limits module (#279), converting the two `ms` rows to nanoseconds with checked arithmetic (R5.1).
+  - `narrow` returns limits that are each at most what they were. A lower cap or path bound is how a host compiles to its own ceiling (R5.3) and how a test meets the cap. A shorter expiry is the only way a setting reaches an expiry (R5.2a). A value above the current one is `Limit`, naming the row.
   - Both refuse a value `tables.md` TV-8 would refuse, as `Limit`, naming the row. A test holds `from_limits` to `Ok` on the committed `limits.toml`.
 - R3.7. It refuses with `CostAboveCap` a bundle whose worst-case cost for any action class exceeds the cap, taking the path length as `path_max_units`. So a blob it wrote never reaches the cap at run time (`tables.md` section 13).
 - R3.8. It writes an interest set that selects every action a floor row can match (`tables.md` section 13). `load` cannot check that property, since no TV rule reads interest coverage, so a compiler test holds it (R3.9). An interest set that selects too little is silent: the floor is never asked about the actions it misses.
-- R3.9. `fastpath_compile_interest` (#414) compiles the bundles of #414 AC-4, and AC-5's generated bundles in its soak run. Its inputs are actions in the form a sensor sees them, not only fixed-layout inputs: each carries the fixed-layout fields, plus the acting process's executable path, signing identity, package identity and its lineage to a selected ancestor, which a process-scope entry reads (`tables.md` section 3.5). A catalogue fixture lists the sessions the bundle's catalogue opens, so rows naming `Session` can be judged (`tables.md` section 13).
-  - For every action that an unindexed reference matcher in the test finds a floor row of the blob to match, a reference interest selector, written from `tables.md` section 3.5, must select that action.
+- R3.9. `fastpath_compile_interest` (#414) compiles the bundles of #414 AC-4, and AC-5's generated bundles in its soak run. Its inputs are actions in the form a sensor sees them, not only fixed-layout inputs: each carries the fixed-layout fields, plus the acting process's executable path, signing identity, package identity and its lineage to a selected ancestor, which a process-scope entry reads (`tables.md` section 3.5). A catalogue fixture lists the sessions the bundle's catalogue opens, so rows naming `Session` can be judged (`tables.md` section 13). The generated actions include ones whose path or destination is unresolved.
+  - For every action that an unindexed reference matcher in the test finds a floor row of the blob to match, a reference interest selector, written from `tables.md` section 3.5 as section 12 amends it for unresolved values, must select that action.
   - Every floor row of every compiled blob must have at least one matching action in the generated set, so no row passes for lack of a witness. That covers rows naming `Session`, rows covered only through process scope, and rows of classes whose actions carry no target path or destination, such as `elevate`.
   - The class vocabularies are enumerated exhaustively up to 20 class bits and sampled above.
 - R3.10. `compiler_version` is the crate's own package version, and no caller can set it. `bundle_digest` and `effective_hash` come from the bundle. The `Blob` makes no alignment promise. A host copies it into private memory before it loads (`tables.md` section 11, custody), and a C host aligns that copy to 8.
@@ -320,14 +386,16 @@ pub enum LimitRow { EvalCapSteps, PathMaxUnits, ExpiryBundle, ExpirySession }
 ### 5. What `grdr-fastpath-ffi` holds (R1)
 - R1.10. It defines `grdr_fp_input`, `grdr_fp_verdict`, `grdr_fp_span` and `grdr_fp_interest_view` as `#[repr(C)]` structs and `grdr_fp_tables` as an opaque type, under the names `c-abi.md` section 2 gives. RFC 0004's descriptor describes them there, so its D10 re-export case does not arise. The crate root denies `clippy::as_conversions` as `grdr-fastpath` does, and uses `<*const T>::addr` for addresses.
 - R1.11. Each entry point checks its arguments in this order, so that C and Rust give one answer for one input:
-  1. address checks, made before anything is read through a pointer, each `GRDR_E_ARG`:
-     - a null pointer where the contract needs one;
+  1. a null pointer where the contract needs one, `GRDR_E_ARG`;
+  2. for `grdr_fp_eval` and `grdr_fp_interest`, the handle record of R1.12: its stored address equals `t`, its check word recomputes to the stored one, and neither changed flag is set. A failure is `GRDR_E_CHANGED`, and nothing is read through an address the record holds until it passes;
+  3. address checks, each `GRDR_E_ARG`, against the blob and arena ranges, taken from the arguments of `grdr_fp_arena_size` and `grdr_fp_load` and from the verified record otherwise:
      - an output range that meets the blob or the arena: the `out` of `grdr_fp_arena_size`, `grdr_fp_load`, `grdr_fp_eval` and `grdr_fp_interest`. Writing through one would change validated bytes while the handle reads them;
-     - an input struct whose base-size range meets the arena, since reading it would alias the arena the handle holds mutably;
-  2. a `struct_size` below the base size, or a struct whose `struct_size` range meets the arena, `GRDR_E_ARG`;
-  3. for `grdr_fp_eval`, `check_pairing` on the handle with the input's labels, so RC1 is `GRDR_E_CHANGED` and a label mismatch `GRDR_E_STATE`, as in Rust;
-  4. the checks only C has, each `GRDR_E_ARG`, with every length checked before any slice is built:
-     - a blob or arena not 8-aligned; a `path_encoding` or `dest_kind` value outside its set;
+     - an input struct whose base-size range meets the arena, since reading it would alias the arena the handle holds;
+  4. a `struct_size` below the base size, or a struct whose `struct_size` range meets the arena, `GRDR_E_ARG`;
+  5. one copy of the input struct's fields (R1.11a);
+  6. for `grdr_fp_eval`, `check_pairing` on the handle with the input's labels, so RC1 is `GRDR_E_CHANGED` and a label mismatch `GRDR_E_STATE`, as in Rust;
+  7. the checks only C has, each `GRDR_E_ARG`, with every length checked before any slice is built:
+     - a blob or arena not 8-aligned; a `path_encoding` or `dest_kind` value outside its set; an `unresolved` value with a bit outside its three, or with a bit set for a value the struct holds (a `path_len` above 0, a `dest_kind` above 0 or a non-zero `exe_digest`);
      - `path_len` above the handle's `path_max_units`, compared as code units, before the slice exists;
      - a UTF-16LE byte length, `path_len` times 2, computed with `checked_mul`;
      - any byte length above `isize::MAX`, the precondition of `core::slice::from_raw_parts`, for the path, the destination name, the blob or the arena;
@@ -335,17 +403,24 @@ pub enum LimitRow { EvalCapSteps, PathMaxUnits, ExpiryBundle, ExpirySession }
      - a blob and arena whose address ranges overlap, which would let `load` write its index into the blob it validated;
      - a path or destination name whose range meets the arena.
 
-  Steps 1 and 2, and the alignment, value-set, overlap and range checks of step 4, have no Rust counterpart, because a Rust caller cannot pass a null, a short struct, an unknown encoding or aliasing slices. The length checks of step 4 come after step 3, as Rust's `Arg(Path)` and `Arg(Destination)` come after its `check_pairing`. For every input both can express, the answers are equal, which #418's differential checks. An all-zero digest becomes `None`, and `path_len` 0 becomes `path: None`. The Rust surface reads bytes at any alignment.
-- R1.12. Its arena holds the handle first, then the arena `grdr-fastpath` uses.
-  - `grdr_fp_arena_size` is the handle's size rounded up to 8 plus `arena_size(blob)`, in checked arithmetic. A sum above `isize::MAX` is `GRDR_E_BUNDLE`, as `Bundle(TooLarge)` is.
-  - `grdr_fp_load` splits the arena, calls `load` with the blob and the second part as slices, and writes the handle into the first part. That is an `unsafe` block with a `// SAFETY:` comment citing the custody text of section 12: the host keeps the blob and the whole arena, handle included, alive, unchanged and out of reach of any less privileged process, from `grdr_fp_load` until its quiescence point after it retires the tables (R2.14).
+  Steps 1, 3 and 4, and the alignment, value-set, `unresolved`, overlap and range checks of step 7, have no Rust counterpart, because a Rust caller cannot pass a null, a short struct, an unknown encoding, a contradictory resolution or aliasing slices. Step 2 is the C form of R2.12a and RC1. The length checks of step 7 come after step 6, as Rust's `Arg(Path)` and `Arg(Destination)` come after its pairing checks. For every input both can express, the answers are equal, which #418's differential checks. An all-zero digest with its `unresolved` bit clear becomes `Absent`, and `path_len` 0 with its bit clear becomes `path: Absent`. The Rust surface reads bytes at any alignment.
+- R1.11a. Inputs during a call. The host owns each input struct, and the memory its pointers reach, for the whole call: it keeps them in memory no less privileged process can write, unchanged until the call returns (section 12, `c-abi.md` section 4). The FFI reads `struct_size` once and then copies the fields it covers once, by value, into a local before any further check, so no check and no use read a field twice. Its conversion function takes the struct by value, so a second read of host memory for a field cannot be written. The bytes the path and the destination name point to are read where evaluation needs them, which can be more than once. Their stability for the call is the host obligation above, which the `SAFETY` comment of each slice cites. In Rust the borrow of `Input` already gives both.
+- R1.12. Its arena holds the handle record first, then the arena `grdr-fastpath` uses.
+  - The record holds its own address, the `Tables` value over the FFI's raw view type, a check word and the FFI's changed flag. The two raw views hold the blob's and the arena's addresses and lengths as `grdr_fp_load` validated them, as integers, and build their slices in `as_ref()`. Every field of the record is an integer or a struct of integers, so any bytes in it are a valid value, and reading a changed record is defined behaviour.
+  - The check word is computed from field values, never from the record's bytes, so no padding is read: the record's own address, the two addresses and lengths (through `Tables::storage`), and the header copy (through `Tables::header`). Neither changed flag is in it. Any change confined to one of those fields changes the word. Every call that takes `t` recomputes it (R1.11 step 2), at a cost of a few dozen word operations.
+  - On a failed record check the FFI sets its own flag, but only when the stored address equals `t`, so it never writes where no record lies.
+  - `grdr_fp_arena_size` is the record's size rounded up to 8 plus `arena_size(blob)`, in saturating arithmetic. R2.1's bound keeps it far below `PTRDIFF_MAX`, so it has no size error, and a saturated sum could only make `grdr_fp_load` refuse the arena.
+  - `grdr_fp_load` splits the arena, calls `load` with the blob and the second part through the raw view type, and writes the record into the first part. That is an `unsafe` block with a `// SAFETY:` comment citing the custody text of section 12: the host keeps the blob and the whole arena, record included, alive, unchanged and out of reach of any less privileged process, from `grdr_fp_load` until its quiescence point after it retires the tables (R2.14).
+  - After `grdr_fp_load`, the only arena bytes the library writes are the two changed flags, each by one atomic store (section 12).
 - R1.13. It maps a `Verdict` to `grdr_fp_verdict`:
   - the verdict numbers come from `layout`;
   - `rule_index` and `reason_code` are `UINT32_MAX` for `Pass`;
   - `StepUp` has scope `NONE`;
   - the scope number is `c-abi.md`'s;
   - `expiry_ns` follows `tables.md` section 6: the header value for `Session` and `Bundle`, where all ones means until the scope ends, and 0 for `Call` and `None`.
-- R1.14. It maps `Error` to `grdr_status` in one nested `match` that names every leaf variant, with no wildcard at any depth (R4.2). The constants `GRDR_FP_ABI_MAJOR`, `GRDR_FP_ABI_MINOR` and `GRDR_FP_ABI_VERSION` (RFC 0004 section 9), and the value `grdr_fp_abi_version()` returns, come from `layout`. The cache-scope, path-encoding, destination-kind and status values, which only `c-abi.md` fixes, are its own constants. RFC 0004's `HDR-3` and `HDR-4` hold them to the contract and the registry.
+
+  It maps `Interest` to `grdr_fp_interest_view`. Each span's `ptr` is the address of its first record in the blob, or null when its `count` is 0. `count` is `Records::count`, and `record_size` is the `Record` implementation's size. `strings` and `strings_len` are the pool's address and length, with `strings` null when the pool is empty. A test in #418 holds the empty case for each span and for the pool.
+- R1.14. It maps `Error` to `grdr_status` in one nested `match` that names every leaf variant, with no wildcard at any depth (R4.2). The constants `GRDR_FP_ABI_MAJOR`, `GRDR_FP_ABI_MINOR` and `GRDR_FP_ABI_VERSION` (RFC 0004 section 9), and the value `grdr_fp_abi_version()` returns, come from `layout`. The cache-scope, path-encoding, destination-kind, `unresolved` and status values, which only `c-abi.md` fixes, are its own constants. RFC 0004's `HDR-3` and `HDR-4` hold them to the contract and the registry.
 
 ### 6. Error codes (R4)
 ARCH-017 binds every error variant to an entry in `schema/codes/<area>.toml`. `grdr-fastpath` has no dependency, so it cannot name `grdr-schema`'s generated codes. Three bindings were weighed:
@@ -353,8 +428,8 @@ ARCH-017 binds every error variant to an entry in `schema/codes/<area>.toml`. `g
 - **(c) A test-only binding through a `grdr-schema` dev-dependency of `grdr-fastpath`.** A test could hold every variant to a code, but non-test code that constructs those codes would need its own copy of the mapping, which the test cannot see (P17). The test would bind codes nobody raises, or check a copy.
 - **(b) Bound in two places, each whole.** Each leaf variant maps to one row of `spec/host-contract/status-codes.toml` through the FFI crate's match, which `HDR-4` holds to the registry. Each leaf also maps to one registered code through the daemon's floor module, where ARCH-017 applies in full.
 
-**Decision: (b), exempted one variant at a time.** The leaves are the twelve variants that carry no fault type: the six of `ArgFault`, `Abi`, the three of `BundleFault`, `State` and `Changed`.
-- R4.1. Each leaf has its own entry in the ARCH-017 exemption list of `architecture.toml`, in the list form RFC 0002 section 14 proposes, with typed fields, not prose:
+**Decision: (b), exempted one variant at a time.** The leaves are the eleven variants that carry no fault type: the six of `ArgFault`, `Abi`, the two of `BundleFault`, `State` and `Changed`.
+- R4.1. Each leaf has its own entry in the ARCH-017 entry list of `architecture.toml`, in the list form RFC 0002 section 14 proposes, with typed fields, not prose:
   - `type` and `variant`, such as `grdr_fastpath::ArgFault` and `Arena`;
   - `registry`, `spec/host-contract/status-codes.toml`, and `status`, the row's name;
   - `bound_in`, `grdr-fastpath-ffi`;
@@ -363,14 +438,16 @@ ARCH-017 binds every error variant to an entry in `schema/codes/<area>.toml`. `g
   The entries are the one copy of both mappings, leaf to status and leaf to code. The two `match` expressions that implement them are checked against the entries, so neither is a second source:
   - ARCH-017 checks that the registry exists and holds a row named `status`, that `code` is a reason registered in area `FASTPATH` (R4.3), that `bound_in` and `coded_by` depend on the type's crate, and that every variant of a listed type has its own entry, unless it is a wrapper. So a variant added later fails the lint until it has an entry of its own.
   - A wrapper is a tuple variant whose only field is an enum that has entries of its own, here `Error::Arg(ArgFault)` and `Error::Bundle(BundleFault)`. ARCH-017 resolves a wrapper to the entries of its field's type and gives it no entry. Any other variant, a tuple variant over a type with no entries included, needs its own entry. In `grdr-core`, `FastpathCompileError::Effective` is a wrapper over a type bound in the ordinary way (R4.4).
+  - An entry with `coded_by` and `code` is an exemption: its type has no code of its own. An entry without them binds a status only, for a type whose codes are bound in the ordinary way, and exempts nothing (R4.5). ARCH-017 checks both kinds the same way for `registry`, `status` and `bound_in`.
 - R4.2. The FFI crate's mapping is one nested `match` naming every leaf, with no wildcard at any depth.
   - A test, `status_per_variant`, reads the entries from `architecture.toml` with `grdr-cabi-testkit`'s row reader (RFC 0004), the FFI crate's existing dev-dependency, and checks the crate's mapping against each entry's `status`.
   - The test's own nested `match`, again with no wildcard, lists the leaves by name only, so a new leaf fails the test's build. A leaf the mapping sends to a status other than its entry's fails the test's run.
+  - The test holds the five parent pairs of R1.5 (`Arg` and `GRDR_E_ARG`, `Abi` and `GRDR_E_ABI`, `Bundle` and `GRDR_E_BUNDLE`, `State` and `GRDR_E_STATE`, `Changed` and `GRDR_E_CHANGED`) in a second `match` of its own, and checks every entry's `status` against its parent's. An entry change that swaps two parents' statuses then fails, even when both mappings follow it. The five pairs are the parent level R1.5 states, not a copy of the leaves.
   - The same test shows that each fast-path status row is produced by at least one leaf, which is ARCH-017's "every registered code is constructed somewhere" for those rows.
 - R4.3. The daemon's floor module (#427, `programs/grdr-daemon/src/floor`) maps every leaf, by a nested `match` with no wildcard, to its own variant of the daemon's error, bound by ARCH-017 to one code each.
   - The codes are in area `FASTPATH` (subsystem: the fast-path evaluator; owner: docs/design/26), with their `/codes` pages and runbooks.
   - `Bundle(Rule(n))` is one code, with the TV number as a structural field.
-  - Section 2a's state adds three codes of the daemon's own: entering floor-missing on `Changed`, `Changed` again on a fresh copy of the same envelope, and an exhausted reload policy.
+  - Section 2a adds three codes of the daemon's own: entering floor-missing on `Changed`; a repeat, with a structural field that says whether reloading ended; and a reload policy that gave up. Each is named for what the daemon observed, never for a cause, because a repeat can come from a defect or from a continuing write (R2.19). A repeat also raises a tamper finding (D-22).
   - #427 registers the codes, and its acceptance gains "every `grdr_fastpath` leaf variant has one registered code". Its test `code_per_variant` reads the entries as `status_per_variant` does and checks the daemon's mapping against each entry's `code`.
   - #1538's `Refused { code }` uses the load-side codes.
   - A person never meets a fast-path error as such. The host applies the class's `on_failure` (D-15) and reports under these codes.
@@ -378,11 +455,12 @@ ARCH-017 binds every error variant to an entry in `schema/codes/<area>.toml`. `g
   - `CostAboveCap`, `TooLarge` and `Limit` bind to three entries of area `COMPILE` (subsystem: the effective-policy compiler; owner: docs/design/12), with the reasons `FASTPATH_COST_ABOVE_CAP`, `FASTPATH_TOO_LARGE` and `FASTPATH_LIMIT_OUT_OF_RANGE`.
   - `Effective` carries the code of the error it wraps and has no entry of its own (R4.6).
   - Whichever of #71 and #414 lands first creates area `COMPILE` through #278's registry, and #414 adds its three entries.
-- R4.5. `grdr_engine_compile_fastpath`, which #388 and #378 R3 leave to a later C ABI minor, calls `compile_fastpath` with `Facts::Relay` and `FastpathLimits::from_limits()`. It maps the top-level variants of `FastpathCompileError` in one `match` with no wildcard:
-  - `Effective`, `CostAboveCap` and `TooLarge` are `GRDR_E_BUNDLE`, and the loaded bundle stays;
-  - `Limit` is `GRDR_E_INTERNAL`, a defect in the shipped `limits.toml`, which R3.6's test keeps unreachable.
+- R4.5. `grdr_engine_compile_fastpath`, which #388 and #378 R3 leave to a later C ABI minor, calls `compile_fastpath` with `Facts::Relay` and `FastpathLimits::from_limits()`, narrowed by any input the item that adds it decides to take. It maps each leaf of `FastpathCompileError` to a status in one nested `match` with no wildcard:
+  - `CostAboveCap` and `TooLarge` are `GRDR_E_BUNDLE`, and the loaded bundle stays;
+  - `Limit` is `GRDR_E_INTERNAL`, a defect in the shipped `limits.toml`, which R3.6's test keeps unreachable;
+  - `Effective` is a wrapper. Each leaf of `EffectiveCompileError` maps to the status #71 states for it: a fault of the bundle to `GRDR_E_BUNDLE`, a memory cap to `GRDR_E_RESOURCE`, and a failed consistency check to `GRDR_E_INTERNAL`.
 
-  A host whose ceiling is below our cap needs a limits input on that function, which the item that adds it decides (section 13).
+  Each of these leaves, #71's included, has a status entry of R4.1's form with `bound_in` `grdr-ffi` and no `coded_by` or `code`. The item's `compile_status_per_variant` checks `grdr-ffi`'s mapping against them as `status_per_variant` does. A host whose ceiling is below our cap needs a limits input on that function, which the item that adds it decides (section 13).
 - R4.6. Design/03 section 10 says "One enum per crate". This RFC settles it as follows, and proposes the wording to design/03 (section 12):
   - In `grdr-fastpath`, `Error` is the floor tables' enum, and it mirrors the statuses of `grdr_fastpath.h`. The fail-safe table and the field scanner get their own enums in their own modules when they arrive, because their failures never cross that header, and putting them in `Error` would force C statuses for errors that never reach C.
   - In `grdr-core`, `FastpathCompileError` sits beside #71's error. `grdr-core`'s modules are its future crates (design/03 section 2), and RFC 0002, in review, gives each port module of `grdr-ports` one enum in the same way.
@@ -392,8 +470,15 @@ ARCH-017 binds every error variant to an entry in `schema/codes/<area>.toml`. `g
 The cap could be a header field written by the compiler from a `limits.toml` row, or a row generated into `grdr-fastpath` as a constant. A constant would put our default inside every partner's library, needing a rebuild to change. A blob from a partner's relay could not state its own cap. A host would have nothing in the blob to compare with its ceiling.
 
 **Decision: the header, as #245 rules** (`tables.md` sections 2, 7, 11 and 13; the chief architect's comment on #405 recording it):
-- R5.1. `eval_cap`, `path_max_units`, `expiry_bundle_ns` and `expiry_session_ns` are header fields. The compiler writes them from `fastpath.eval_cap_steps`, `fastpath.path_max_units`, `fastpath.expiry_bundle_ns` and `fastpath.expiry_session_ns` through `FastpathLimits` (R3.6). `grdr-fastpath` holds none of them.
-- R5.2. An expiry of all ones means until the scope ends, and TV-8 refuses 0, so 0 only ever means "never reused" (`tables.md` section 6).
+- R5.1. `eval_cap`, `path_max_units`, `expiry_bundle_ns` and `expiry_session_ns` are header fields. The compiler writes them through `FastpathLimits` (R3.6) from four `limits.toml` rows, named as RFC 0007 section 6 requires: `fastpath.eval-cap` and `fastpath.path-max` in `count`, and `fastpath.expiry-bundle` and `fastpath.expiry-session` in `ms`. `from_limits` converts each `ms` value to nanoseconds with checked arithmetic, and a value that overflows or gives 0 is `Limit`, naming the row. `grdr-fastpath` holds none of them.
+- R5.2. In the header, an expiry of all ones is `Expiry::ScopeEnd`, until the scope ends, and TV-8 refuses 0, so 0 only ever means "never reused" (`tables.md` section 6). No `limits.toml` row holds either number: a row is an amount, and RFC 0007 section 6 gives the format no value for "unbounded".
+- R5.2a. Who may lengthen reuse (ruling 9 on #1710). Reusing a verdict for longer is a widening, as SR-26 (design/02 section 3.8) counts a longer timeout, so the sources of each scope's expiry are ordered:
+  - by default the expiry is `After` the row's amount;
+  - only the signed bundle the compiler reads may choose `ScopeEnd` for a scope, through a field of its manifest. That choice is a widening, so SR-26's signature rule applies to it as to any other widening, and an artefact signed by an operator alone cannot make it. The field is a bundle format change that needs its own RFC, filed on acceptance (section 13). Until it exists, no blob our compiler writes carries `ScopeEnd`;
+  - `FastpathLimits::narrow` can only shorten. A `grdr.config` key that sets a fast-path expiry, if one is ever added, reaches the compiler only through `narrow`, so it can shorten an expiry, the bundle's `ScopeEnd` included, and never lengthen one or choose `ScopeEnd`. In RFC 0007 revision 3's terms such a key is a `setting` whose ceiling is the expiry's row;
+  - the header's expiry for a scope is the shorter of what the bundle chose (`ScopeEnd`, or `After` the row's amount when it chose nothing) and any amount `narrow` set.
+
+  `fastpath_expiry_source` (#414) holds this. With no bundle choice the header carries the row's amount. `narrow` to a shorter amount writes that amount. `narrow` to an amount above the current one is `Limit`. No input but the bundle writes all ones. The item that adds the manifest field adds the cases of a bundle that chooses `ScopeEnd`, with and without a shorter `narrow`.
 - R5.3. Three parties hold the bounds:
   - the compiler refuses a bundle whose worst case exceeds the cap (R3.7);
   - `eval` refuses an input whose cost exceeds it (R2.3);
@@ -401,16 +486,16 @@ The cap could be a header field written by the compiler from a `limits.toml` row
 
   A Rust host reads both values from `Tables::header()` after `load` and before it publishes the handle. That copy is what every call reads (R2.8), so the check and the use read one value. A C host reads them from its private copy before `grdr_fp_load` (`tables.md` section 11). Today `tables.md` section 11's cap obligation covers `eval_cap` only. Adding `path_max_units` is a change for #245 (section 12), and the daemon's tests of both are #1769's.
 
-  Our daemon's ceilings are two `limits.toml` rows, `fastpath.host_eval_cap_ceiling_steps` and `fastpath.host_path_max_units_ceiling` (`count` each), read through `grdr-schema`'s generated module, which is constants only and so admitted in a privileged closure. They are bounds, not operator settings, so they are not `grdr.config` keys (`grdr-structure`'s values table); an operator setting would need a stated use first. A test in #1538 holds `fastpath.eval_cap_steps` and `fastpath.path_max_units` at or below them, so our own compiler's blobs always load on our daemon. The rows land with `[retry.fastpath-reload]` (R2.18) through one protected `limits.toml` item, filed on acceptance (section 13).
-- R5.4. The argument checks of R2.3 step 2 scan the input path once, linearly in its length, before the cost check. `eval_cap` does not count that scan; `tables.md` section 7's cost model counts steps per row and per entry. So `path_max_units` bounds the scan, and for a blob from elsewhere only the host's ceiling bounds `path_max_units`.
-- R5.5. The rows land through #1768, a protected change for lead-agent-kit. How a row writes nanoseconds and "until the scope ends" is open between #1768 and #279's units (Unresolved question 3). Whatever the form, `from_limits` maps it to these values and the library never sees it.
+  Our daemon's ceilings are two `limits.toml` rows, `fastpath.host-eval-cap-ceiling` and `fastpath.host-path-max-ceiling`. Each is a `[bound.*]` row in `count` with the `min`, `max`, `scope` and `effect` keys RFC 0007 revision 3 makes required: `scope = "fixed"`, because they bound what a blob may ask for, no setting reads them and they change only by release, and `effect = "none"`. They are read through `grdr-schema`'s generated module, which is constants only and so admitted in a privileged closure. They are bounds, not operator settings, so they are not `grdr.config` keys (`grdr-structure`'s values table); an operator setting would need a stated use first. A test in #1538 holds `fastpath.eval-cap` and `fastpath.path-max` at or below them, so our own compiler's blobs always load on our daemon. The rows land with `[retry.fastpath-reload]` (R2.18) and `fastpath.reload-settle` (R2.19), also `fixed` and `none`, through one protected `limits.toml` item, filed on acceptance (section 13). #1768's four rows take the same keys, `fixed` and `none`.
+- R5.4. The argument checks of R2.3 step 2 scan the input path once, linearly in its length, before the cost check. An `Unresolved` path is not scanned. `eval_cap` does not count that scan; `tables.md` section 7's cost model counts steps per row and per entry. So `path_max_units` bounds the scan, and for a blob from elsewhere only the host's ceiling bounds `path_max_units`.
+- R5.5. RFC 0007 section 7 settles the units: the expiry rows are whole milliseconds, which `from_limits` converts (R5.1). R5.2a settles which source may choose `ScopeEnd`. `Expiry`, its mapping to the header and the order of R5.2a are this RFC's. #1768's lead writes the rows' values and their `min` and `max` within R5.2a, and the library never sees a row.
 
 ### 8. Stability (R6)
 - R6.1. `surfaces.toml` gains a row kind for a public crate: `[[crate]]`, with the keys `name`, `class` and `rfc`. Each value is one double-quoted string on its own `key = "value"` line, the subset #1817's rows use.
   - Three rows, all `experimental`: `grdr-fastpath`, `grdr-fastpath-ffi`, and `grdr-core` unless another accepted RFC has added it.
   - A protected-change item adds the row kind and the rows once this RFC is accepted and #1817 has created the file.
   - ADR-0020's gate reads these rows for `cargo public-api` and `cargo semver-checks`.
-- R6.2. A class is per crate. `compile::fastpath` has `grdr-core`'s class, and no row classes a module. A crate's class is at most the class of every crate whose public types its own public API exposes. `grdr-core` exposes `grdr_fastpath::layout::Expiry`, so it cannot move above `grdr-fastpath`. `cargo public-api` lists the exposed types, and the stability gate checks the rule.
+- R6.2. A class is per crate. `compile::fastpath` has `grdr-core`'s class, and no row classes a module. A crate's class is at most the class of every crate whose public types its own public API exposes. `grdr-core` exposes `grdr_fastpath::layout::Nanos` (in `Narrowing`), so it cannot move above `grdr-fastpath`. `cargo public-api` lists the exposed types, and the stability gate checks the rule.
 - R6.3. The blob format, `table_format` 1, is experimental by `tables.md` section 12, and the C header's class is its `[[c_header]]` row (#1817). This RFC sets neither.
 - R6.4. An experimental crate may break, but a break bumps its major, with no overlap (ADR-0020, D-71). Under SemVer 0.y, `cargo semver-checks` treats the next 0.y as that major. A break is an amendment that names this RFC.
 - R6.5. Moving any of the three crates to `beta` needs:
@@ -431,22 +516,30 @@ The cap could be a header field written by the compiler from a `limits.toml` row
 ### 10. Failure modes, data classes and assurance effect
 | Failure | Outcome | Visible as |
 |---|---|---|
-| A TV rule fails at `arena_size` or `load` | `Abi` for TV-3, `Bundle(Rule(n))` otherwise; no handle; the host keeps its previous tables | The returned error; the host reports under its `FASTPATH` code (R4.3) |
-| The arena is too short, or its size is above `isize::MAX` | `Arg(Arena)` or `Bundle(TooLarge)`; no handle | As above |
-| A C argument or length is invalid; blob and arena overlap; an output meets the blob or arena, or an input lies in the arena | `GRDR_E_ARG`; nothing written | The status; the host applies the class's `on_failure` |
+| A TV rule fails at `arena_size` or `load` | `Abi` for TV-3, `Bundle(Rule(n))` otherwise; no handle; the host keeps the tables it was using, or stays without tables if it had none or only retired ones | The returned error; the host reports under its `FASTPATH` code (R4.3) |
+| The arena is too short | `Arg(Arena)`; no handle | As above |
+| A C argument or length is invalid; blob and arena overlap; an output meets the blob or arena, or an input lies in the arena; an `unresolved` bit is unknown or contradicts a value the struct holds | `GRDR_E_ARG`; nothing written | The status; the host applies the class's `on_failure` |
 | Label bits from another bundle | `State` on every call until labels and tables agree | The returned error; the host applies `on_failure` and reports |
-| An input field out of range | `Arg`, naming the field | As above |
+| An input field out of range, or a path outside the form of R2.3a | `Arg`, naming the field | As above |
+| An input value the host could not resolve | The rows it could meet give their own outcome, with scope `none`; never a cacheable `pass` (R2.3b) | The verdict; nothing cached |
 | An input whose cost exceeds `eval_cap` | `Bundle(EvalCap)`, never a verdict | As above |
-| A re-check of section 2 fails, in any step, the cost step included | `Changed`, never a verdict and never `EvalCap`; the host stops using the handle at once (R2.16) | The returned error or `GRDR_E_CHANGED`; the host reports a custody fault and is Degraded |
+| A re-check of section 2 fails, in any step, the cost step included | `Changed`, never a verdict and never `EvalCap`; the changed flag is set; the host retires the handle and its generation at once (R2.16) | The returned error or `GRDR_E_CHANGED`; the host reports under its code and is Degraded |
+| A call on a handle that returned `Changed` before, though its storage reads valid again | `Changed` (R2.12a) | As above |
+| In C, the handle record changed in a way its check sees, or moved | `GRDR_E_CHANGED`; nothing read through its addresses (R1.11 step 2) | As above |
 | A run entry in the arena is rewritten, an emptied run included | `Changed` from RC2's boundary rows | As above |
-| Between dropping the handle and a successful reload | The floor counts as missing: fail-closed classes deny, the others take `on_failure`; our daemon denies every class (#427 R8); the old interest filters stay (R2.17) | `degraded_reason` `floor-missing`; the device is Degraded |
-| A reload fails a TV rule, the ABI or a host check | Floor-missing stays, never the dropped tables; the next attempt follows `[retry.fastpath-reload]` (R2.19) | The daemon's code for the failure |
-| `Changed` again on a fresh copy of the same envelope, or the reload policy exhausted | Reloading ends; floor-missing stays until a new bundle activation or a restart (R2.19) | The daemon's code for each case |
-| Storage changes in a way no re-check sees: valid blob bytes, or in C the handle | A verdict from the changed bytes (R2.13) | Not visible to the library; custody (R2.14) prevents it |
-| A host's ceiling is below the blob's `eval_cap` or `path_max_units` | The host refuses the blob and keeps its previous tables | The host's report (#1769) |
+| A verdict cached under the retired generation, or returned by a call running at the transition | Never read and never inserted; the action is answered as floor-missing (R2.16) | The answer carries `floor-missing` |
+| Between retiring the handle and a successful reload | Floor-missing: each floor lookup takes its action class's declared `on_failure` from the verified bundle; the engine's answers in time are unchanged; the old interest filters stay (R2.17) | `degraded_reason` `floor-missing`; the device is Degraded |
+| A start with no tables and no loaded pack | Every class denies (#427 R8) | `degraded_reason` `floor-missing` |
+| A reload fails a TV rule, the ABI or a host check | Floor-missing stays, never the retired tables; the next attempt follows `[retry.fastpath-reload]` (R2.19) | The daemon's code for the failure |
+| `Changed` again from a reloaded handle on probation | A tamper finding; floor-missing; reloading ends when the blob's bytes are the same, and otherwise goes on under the same policy (R2.19) | The repeat code and the finding |
+| The reload policy gives up | Reloading ends; floor-missing until an activation is adopted or the host restarts (R2.19) | The daemon's code |
+| A new activation while the floor is missing | Its tables are tried at once; adopted, the host serves them; refused, floor-missing stays as it was (R2.19) | The activation's report (#1538) |
+| Storage changes in a way no re-check sees: valid blob bytes, or in C a record rewritten with its check | A verdict from the changed bytes (R2.13); in C outside R2.9, so also a read of memory no TV rule checked, or a fault | Not visible to the library; custody (R2.14) prevents it |
+| An input the host changes during the call | Outside the contract (R1.11a): the FFI reads each field once, and a changed path or name byte is answered as read | Not visible to the library; the host obligation prevents it |
+| A host's ceiling is below the blob's `eval_cap` or `path_max_units` | The host refuses the blob and keeps the tables it was using | The host's report (#1769) |
 | No floor row objects | `Pass`, which is not `ALLOW` | The verdict; the host goes on to the engine or to `on_failure` |
 | A bundle whose worst case exceeds the cap, or a blob too large | `CostAboveCap` or `TooLarge`; no blob | The `COMPILE` code; the caller keeps its last-known-good tables (design/12 section 10) |
-| A limit row out of range | `Limit(row)` | The `COMPILE` code, naming the row |
+| A limit row out of range, or a narrowing above the current value | `Limit(row)` | The `COMPILE` code, naming the row |
 | A fail-closed rule the floor cannot hold | Its `FloorReport` outcome; the rule keeps its class's loss-of-sensor outcome | The floor report, which #71 and #41 read |
 | An interest set that selects too little | Not detectable at `load`; held at compile time by R3.9 | `fastpath_compile_interest` fails |
 | A volume of unknown case | Its classes fold, which errs toward `deny` | The compiled `path_fold_classes` |
@@ -456,13 +549,15 @@ Data classes (P8):
 - `Digest` values, `bundle_tag`, and a destination name and address are `identifier`;
 - `labels.bits` and `ClassBits` are `derived`;
 - the target path is `content` (`content_kind` argument);
+- the `Resolution` variant and the C `unresolved` bits are `structural`;
 - header and records take the classes of `tables.md` section 14, and so does the `Blob`, which is `content` when it holds a resolved template and then never leaves the device;
 - a volume mount point is `identifier`;
+- the record's addresses and check word are `structural` and never leave the process;
 - errors and the floor report are `structural`.
 
 `grdr-fastpath` logs nothing, and R1.7 keeps content and identifiers out of `Debug`.
 
-Assurance effect (P1): none of its own. The surface carries the floor rows that answer fail-closed classes while the engine is gone (D-15, D-20), and its items' tests are the evidence for `control` of those classes.
+Assurance effect (P1): none of its own. The surface carries the floor rows that answer fail-closed classes while the engine is gone (D-15, D-20), and its items' tests are the evidence for `control` of those classes. Section 2a answers a custody fault with each class's declared `on_failure`, which is what the assurance record already states, so no record value changes.
 
 ### 11. Mechanisms
 | Decision | Mechanism | Built by |
@@ -470,134 +565,189 @@ Assurance effect (P1): none of its own. The surface carries the floor rows that 
 | No raw pointer, `unsafe`, `alloc` or dependency in `grdr-fastpath` | `#![forbid(unsafe_code)]`, `#![no_std]`; `cargo tree -e normal,build` shows the crate alone; ARCH-001 | #409 (AC-5); #1580 |
 | No truncating cast in either crate | `#![deny(clippy::as_conversions)]` at both crate roots, beside `arithmetic_side_effects` | #409; #418 |
 | Builds for `wasm32-unknown-unknown` | `cargo build --target wasm32-unknown-unknown -p grdr-fastpath` | #409 (AC-6) |
-| 32-bit arithmetic is executed, not only compiled; the FFI's `unsafe` runs under Miri (SD-01) | The nightly Miri job runs `grdr-fastpath`'s tests for `i686-unknown-linux-gnu`, which Miri interprets without a 32-bit libc, and `grdr-fastpath-ffi`'s tests on the host target | #1475 |
-| `load`, the path decoder and the name check are fuzzed (SD-04) | A fuzz target over `load`, `eval` and `classify`, differential against #409's reference validator and #412's unindexed evaluator | The fuzz item filed on acceptance, blocked by #415 and #409 |
+| 32-bit arithmetic is executed, not only compiled; the FFI's `unsafe` runs under Miri (SD-01) | The nightly Miri job runs `grdr-fastpath`'s tests for `i686-unknown-linux-gnu`, which Miri interprets without a 32-bit libc, and `grdr-fastpath-ffi`'s tests on the host target, `ffi_record_changed` included | #1475 |
+| `load`, the path decoder and the name check are fuzzed (SD-04) | A fuzz target over `load`, `eval` and `classify`, differential against #409's reference validator and #412's unindexed evaluator; a spurious `Changed` on unchanged storage fails it | The fuzz item filed on acceptance, blocked by #415 and #409 |
 | Of `grdr-core`, only `compile::fastpath` imports `grdr-fastpath`, and only `layout` | ARCH-013's import table reads the edge's `importers` and `paths` in `architecture.toml` (section 12). Until #1582 lands, `eval-architecture` checks every change to `crates/grdr-core/src/**` | #1582; the `architecture.toml` item filed on acceptance |
 | One layout definition, independent oracles | `layout` shared; #409's reference validator; #412's fixtures; #414's golden rows; #20's differential; the comparison-count vectors | #409, #412, #414, #20 |
+| TV-3 has one representation | `TvRule` cannot hold 3; `fastpath_rule_variant`: a blob that fails exactly one rule gives the variant `tables.md` section 5 names, for every rule | #409 |
 | Rust and C give the same answers | #418's behaviour: on any blob, `grdr_fp_load` then `grdr_fp_eval` equal `load` then `eval` | #418 |
-| The FFI's argument, length, overlap and range rules, in R1.11's order | One seeded test per R1.11 rule, each expecting `GRDR_E_ARG` with nothing written; one with a mismatched label tag and an over-long path, expecting `GRDR_E_STATE` from C as `State` from Rust | #418 |
-| Each re-check gives `Changed` at its first read, and an undetected change is recorded | The tests of R2.15, `fastpath_changed_rc2_cost`, `fastpath_changed_rc2_empty` and `fastpath_one_view` among them | #412, with #410 for RC2 and RC4 to RC6 in `classify` |
-| `reload-required` is a state with bounded exits | `fastpath_reload` (R2.20) | #427 |
-| The host keeps blob and arena in custody | The contract text of section 12; for our daemon, #1769's custody race test extended to the arena, where a write to the arena after `load` must give `Changed` through RC2 | #246; #245; #1769 |
-| Every leaf variant maps to its status, and every fast-path status is produced | The nested no-wildcard mapping (R1.14), checked against the entries' `status` by `status_per_variant` (R4.2); `HDR-4` against `status-codes.toml` | #418; #1778 |
-| The ARCH-017 exemption is per variant, typed, and the one copy of both mappings | The entries of R4.1, whose `status`, `code`, `bound_in` and `coded_by` ARCH-017 checks; the wrapper rule | The `architecture.toml` item; #1582 |
+| The FFI's argument, length, overlap, range and `unresolved` rules, in R1.11's order | One seeded test per R1.11 rule, each expecting its status with nothing written; one with a mismatched label tag and an over-long path, expecting `GRDR_E_STATE` from C as `State` from Rust | #418 |
+| The C views come only from the verified record | `ffi_record_changed`: for each field the check word covers, a changed value gives `GRDR_E_CHANGED` from `grdr_fp_eval` and `grdr_fp_interest`, and so does a record copied to another address; under Miri no read goes through a changed address | #418; #1475 |
+| Each input field is read once | The conversion function takes `grdr_fp_input` by value (R1.11a); `eval-security` checks it on #418's pull request | #418 |
+| The library's path form | `fastpath_path_form`'s vector table, run by #412's tests and by #418's differential | #412; #418 |
+| An unresolved value never gives a cacheable `pass` | `fastpath_unresolved`: for each classifier, an `Unresolved` value against rows that require its classes gives their outcome with scope `none`, a `pass` over one has scope `none`, and the cost counts its classifier's entries | #412; #410 for `classify`; #418 for the C field |
+| The label tag is read little-endian | A #412 vector whose first eight digest bytes are not a palindrome | #412 |
+| Each re-check gives `Changed` at its first read, none fires on unchanged storage, and an undetected change is recorded | The tests of R2.15, `fastpath_changed_rc2_cost`, `fastpath_changed_rc2_empty`, `fastpath_one_view` and `fastpath_no_false_changed` among them | #412, with #410 for RC2 and RC4 to RC6 in `classify` |
+| `Changed` is sticky | `fastpath_changed_sticky`; in C, `ffi_changed_sticky` for both flags | #412; #410; #418 |
+| `reload-required` is a state with bounded exits, and the retired generation never answers | `fastpath_reload`, `fastpath_reload_cache` and `fastpath_reload_loop_stops` (R2.20) | #427 |
+| The host keeps blob, arena and inputs in custody | The contract text of section 12; for our daemon, #1769's custody race test extended to the arena, where a write to the arena after `load` must give `Changed` through RC2, and to the cache, where a verdict cached before `Changed` is never read while the floor is missing | #246; #245; #1769 |
+| Every leaf variant maps to its status, every fast-path status is produced, and each leaf's status is its parent's | The nested no-wildcard mapping (R1.14), checked against the entries' `status` and the five parent pairs by `status_per_variant` (R4.2); `HDR-4` against `status-codes.toml` | #418; #1778 |
+| The ARCH-017 exemption is per variant, typed, and the one copy of both mappings | The entries of R4.1, whose `status`, `code`, `bound_in` and `coded_by` ARCH-017 checks; the wrapper rule; status-only entries for compile errors | The `architecture.toml` item; #1582 |
 | Every leaf variant has a registered code where the errors are met | The daemon's nested no-wildcard mapping, checked against the entries' `code` by `code_per_variant`; ARCH-017 on the daemon's enum; area `FASTPATH` | #427; #278 |
-| Our daemon's ceilings and reload policy are data | The `limits.toml` rows of R5.3 and R2.18; a test that the compiler's defaults sit at or below the ceilings | The `limits.toml` item filed on acceptance; #1538 |
-| `FastpathCompileError` codes and C statuses | Area `COMPILE`; ARCH-017; #278's drift test; the no-wildcard status match of R4.5 | #414; #71; #278; #1582; the `grdr_engine_compile_fastpath` item |
+| Our daemon's ceilings, settle bound and reload policy are data | The `limits.toml` rows of R5.3, R2.18 and R2.19; a test that the compiler's defaults sit at or below the ceilings | The `limits.toml` item filed on acceptance; #1538 |
+| `FastpathCompileError` codes and C statuses | Area `COMPILE`; ARCH-017; #278's drift test; the no-wildcard status match of R4.5, checked against its entries by `compile_status_per_variant` | #414; #71; #278; #1582; the `grdr_engine_compile_fastpath` item |
 | No bound in `grdr-fastpath` | The four header fields; TV-8; `FastpathLimits` from the generated module; ARCH-019 | #1768; #414; #409; #1582 |
-| A blob from our compiler never reaches the cap, and the built-in limits are valid | `CostAboveCap` with a seeded bundle above a small cap through `FastpathLimits::new`; `from_limits` is `Ok` on the committed file | #414 |
+| Only the signed bundle lengthens reuse; a setting only shortens it | `narrow` refuses a longer value; `fastpath_expiry_source` (R5.2a) | #414; the manifest field's item |
+| A blob from our compiler never reaches the cap, and the built-in limits are valid | `CostAboveCap` with a seeded bundle above a small cap through `FastpathLimits::narrow`; `from_limits` is `Ok` on the committed file | #414 |
 | A host's ceilings bound `eval_cap` and `path_max_units` | The host obligation of `tables.md` section 11, widened to `path_max_units`; the daemon's negative tests | #245; #1769 |
-| The interest set covers every floor row | `fastpath_compile_interest` (R3.9) | #414 |
+| The interest set covers every floor row, unresolved actions included | `fastpath_compile_interest` (R3.9) | #414 |
 | Unknown or missing volume facts fold | A test with `CaseRule::Unknown`, an empty `volumes` and a partial one, each expecting the class's fold bit set | #414 |
 | Concurrent evaluation is safe | A type-level test that `Tables`, `Interest` and `Records` are `Send + Sync`, for borrowed and boxed storage; #412's determinism property | #412 |
-| No content or identifier in `Debug` | A test per R1.7 type that its `Debug` output holds no byte of the value it was built from | #409, #410, #412, #414 for their types |
+| Derives are those of R1.7, and no content or identifier reaches `Debug` | `cargo public-api` lists every derived trait, so ADR-0020's gate shows a change; a test per redacting type of R1.7, `Records` included, that its `Debug` output holds no byte of the value it was built from | #409, #410, #412, #414 for their types; ADR-0020's gate item |
+| The interest view maps empty sections to null | A #418 test per span and for the pool (R1.13) | #418 |
 | The ABI's highest action class equals the spine's | A test in `grdr-core` that `layout`'s ceiling equals the highest `grdr.common.v1alpha1.ActionClass` number, so a new class fails until a new minor raises it | #414 |
 | The fast path is a deliberate second implementation (P17) | An `architecture.toml` record of the pair `grdr-fastpath` and `grdr-core`, held equal by the B2 differential | The `architecture.toml` item; #20 |
 | Each crate has a class, and no crate outranks what it exposes | `[[crate]]` rows; `cargo public-api` and `cargo semver-checks` | The `surfaces.toml` item filed on acceptance; ADR-0020's gate item |
 | Golden blobs survive a release | The masking helper of R6.6 | #414 |
 
 ### 12. Proposed changes to contracts, design documents and gate files
-Each lands through the item named, or an issue whose write set names its file, after acceptance.
+Each lands through the item named, or an issue whose write set names its file, after acceptance. The three replacements under "Required amendments" are exact text, posted as comments on their items.
 
 **`c-abi.md` and `status-codes.toml`** (#246, while it is open; otherwise a protected-change item):
-1. A new status, `GRDR_E_CHANGED`, value 11, the next free one. Its `meaning` is "Fast path only: the tables' blob or arena no longer reads as `grdr_fp_load` validated it." Its `handle_after` is `reload-required`, a new value whose text, in the registry's header comment and in `c-abi.md` section 7, is section 2a's state:
-   - stop using the handle at once;
-   - until a load from a freshly verified copy succeeds, count the floor as missing, so fail-closed classes deny and the others take `on_failure`, keep the interest filters, and report Degraded;
+1. A new status, `GRDR_E_CHANGED`, value 11, the next free one. Its `meaning` is "Fast path only: the tables' blob, arena or handle no longer reads as `grdr_fp_load` validated it, now or on an earlier call on the same handle." Its `handle_after` is `reload-required`, a new value whose text, in the registry's header comment and in `c-abi.md` section 7, is section 2a's state:
+   - retire the handle at once and never call it again; its cache generation stops being current, no verdict cached under it is read, and the result of a call that was running on it is discarded;
+   - until a load from a freshly verified copy succeeds, count the floor as missing: answer each floor lookup with the action class's declared `on_failure` from the verified bundle, keep the interest filters, and report Degraded;
    - free the old blob and arena only after the quiescence point;
-   - never return to the old handle;
-   - bound the reloads, and stop when a fresh copy of the same envelope gives `GRDR_E_CHANGED` again.
+   - start the first reload at once and bound the rest with a retry policy. A repeat of `GRDR_E_CHANGED` from a reloaded handle before it has served a settle period is reported as tamper, and ends reloading when the blob's bytes are the same.
 
    Section 6 says the fast path uses five statuses, not four.
 2. The `grdr_fp_eval` and `grdr_fp_interest` rows list `GRDR_E_CHANGED`.
 3. The `grdr_fp_eval` check order of R1.11 and R2.3:
-   1. the address checks and `struct_size`, `GRDR_E_ARG`;
-   2. a failed RC1, `GRDR_E_CHANGED`; then a label mismatch, `GRDR_E_STATE`;
-   3. the remaining argument and length checks, `GRDR_E_ARG`;
-   4. the class above `action_class_count`, which gives `pass` with scope `none`;
-   5. the cost, where a failed re-check of what the cost reads is `GRDR_E_CHANGED` and a cost that exceeds `eval_cap` is `GRDR_E_BUNDLE`;
-   6. evaluation, where a failed re-check is `GRDR_E_CHANGED`.
+   1. a null pointer, `GRDR_E_ARG`;
+   2. the handle record and both changed flags, `GRDR_E_CHANGED`;
+   3. the address checks against the record's ranges, then `struct_size`, `GRDR_E_ARG`;
+   4. one copy of the input's fields;
+   5. a failed RC1, `GRDR_E_CHANGED`; then a label mismatch, `GRDR_E_STATE`;
+   6. the remaining argument and length checks, with the path form of R2.3a in place of "the canonical form of #221 R4", `GRDR_E_ARG`;
+   7. the class above `action_class_count`, which gives `pass` with scope `none`;
+   8. the cost, where a failed re-check of what the cost reads is `GRDR_E_CHANGED` and a cost that exceeds `eval_cap` is `GRDR_E_BUNDLE`;
+   9. evaluation, where a failed re-check is `GRDR_E_CHANGED`.
 
    So `GRDR_E_CHANGED` can come before the cost result.
-4. The argument rules of R1.11 in the rows of all four fast-path functions: address checks before any read, lengths checked before any slice, `PTRDIFF_MAX` as the largest byte length, the name maximum, blob and arena overlap, outputs that meet the blob or arena, and inputs inside the arena.
-5. The `grdr_fp_arena_size` row: `GRDR_E_BUNDLE` also when the arena size exceeds `PTRDIFF_MAX`.
-6. The `grdr_fp_verdict` text: a `step_up` verdict always has `cache_scope` `NONE`.
-7. The `grdr_engine_compile_fastpath` row: `GRDR_E_BUNDLE` also when the worst-case cost exceeds the cap, and `GRDR_E_INTERNAL` for invalid built-in limits (R4.5).
-8. Arena custody, in section 2 and the `grdr_fp_load` row, replacing "The blob and arena must outlive the tables": "The host keeps the blob and the whole arena, the tables handle included, in memory no less privileged process can write, unchanged from `grdr_fp_load` until its quiescence point after it retires the tables" (R2.14).
-9. The alignments of Unresolved question 2.
+4. The argument rules of R1.11 in the rows of all four fast-path functions: address checks before any read, the record check before any read through its addresses, lengths checked before any slice, `PTRDIFF_MAX` as the largest byte length, the name maximum, blob and arena overlap, outputs that meet the blob or arena, inputs inside the arena, and the `unresolved` rules.
+5. The `grdr_fp_verdict` text: a `step_up` verdict, and any verdict over an unresolved value, has `cache_scope` `NONE`.
+6. The `grdr_engine_compile_fastpath` row: `GRDR_E_BUNDLE` also when the worst-case cost exceeds the cap, `GRDR_E_INTERNAL` for invalid built-in limits, and the statuses of #71's leaves (R4.5).
+7. Arena custody, in section 2 and the `grdr_fp_load` row, replacing "The blob and arena must outlive the tables": "The host keeps the blob and the whole arena, the tables handle included, in memory no less privileged process can write, unchanged from `grdr_fp_load` until its quiescence point after it retires the tables" (R2.14).
+8. Input custody, in section 4, replacing "Inputs are borrowed for the duration of the call and never retained": "Inputs are borrowed for the duration of the call and never retained. The host keeps each input, and the memory its pointers reach, in memory no less privileged process can write, unchanged until the call returns. The fast path reads each field of an input struct once, before any check" (R1.11a).
+9. A new field of `grdr_fp_input`, `uint32_t unresolved`, at offset 108 on 64-bit targets, in what is padding today, so the base size stays 160 (R2.3b). Bit value 1 is the path, 2 the destination and 4 the executable digest. A set bit requires its value to be absent in the struct (`path_len` 0, `dest_kind` 0, an all-zero `exe_digest`); any other bit, or a bit set beside a value, is `GRDR_E_ARG`. The `exe_digest` comment becomes "all zero: none supplied, unless `unresolved` says it could not be resolved".
+10. The fast path's writes, in sections 4 and 5: it writes the arena in `grdr_fp_load`, and afterwards only the handle's two changed flags, each by one atomic store, in `grdr_fp_eval` and `grdr_fp_interest`. Section 5's "pure" becomes "deterministic while the blob and arena are unchanged", and both stay callable concurrently on the same tables.
+11. The `GRDR_E_BUNDLE` row and the definition of `last-known-good`, with the exact text under "Required amendments" (A2).
+12. The alignments of Unresolved question 2.
 
 **`tables.md`** (#245):
 1. Section 11, Cap: the host's ceiling also bounds `path_max_units` (R5.3).
 2. Section 13: a class folds when a volume it can reach has an unknown case or is missing from the facts, and a change of the device's volumes is a recompile (R3.5).
 3. Section 13: the compiler test that proves interest coverage is #414's `fastpath_compile_interest`.
 4. Section 6: the order of the vocabulary case against the argument checks and the cost (R2.3).
-5. Section 11, Custody: the arena joins the blob, with the text of item 8 above (R2.14).
-6. Sections 10 and 11: the host's state after `GRDR_E_CHANGED`, as section 2a states it.
+5. Section 11, Custody: the arena joins the blob, with the text of `c-abi.md` item 7 above (R2.14), and inputs follow `c-abi.md` section 4 (item 8).
+6. Sections 10 and 11: the host's state after `GRDR_E_CHANGED`, as section 2a states it. Section 10's cache paragraph gains: "A handle that returned `GRDR_E_CHANGED` is retired with its generation. The host reads no entry of that generation again, discards the result of a call that was running on it, reads no generation while it has no tables, and never reuses a generation number."
+7. Section 5, the sentence after the table, with the exact text under "Required amendments" (A2).
+8. Section 6, Target path: the form the library checks is R2.3a's, and the rest of section 11's path form is the host's alone (A8).
+9. Sections 3.5, 6, 7 and 11, unresolved values (R2.3b):
+   - section 6's "An empty path, an absent destination or an all-zero executable digest contributes no bits" becomes "An absent path, destination or executable digest contributes no bits. An unresolved one contributes every class bit its classifier can set, and the verdict's scope is `none`";
+   - section 6's cache rule 1 adds "when any input value is unresolved";
+   - section 7 adds "with an unresolved value: one step per entry of its classifier, in place of that classifier's term";
+   - section 3.5 adds that an action whose path or destination the host could not resolve is of interest whenever its class's interest set holds any path or host entry, since the host cannot tell which one it would meet.
+10. Section 7: after `grdr_fp_load`, the library writes only the handle's changed flags (`c-abi.md` item 10).
+11. Sections 2 and 13: the row names of R5.1, and in section 2's source table, that each expiry is the shorter of the bundle's choice and any narrowing (R5.2a).
+
+**Required amendments** (ruling 3 on #405; each posted on its item as a comment headed "Required amendment from RFC 0005 revision 4"; the decision waits until all three are posted):
+
+- **#246, `spec/host-contract/status-codes.toml`.** The `GRDR_E_BUNDLE` row becomes:
+
+  ```toml
+  [[status]]
+  name = "GRDR_E_BUNDLE"
+  value = 4
+  meaning = "Bundle rejected. For the fast path, a table blob that fails a TV rule, or an evaluation whose cost exceeds the blob's eval_cap. The host keeps the tables it was using before the call, unless those tables returned GRDR_E_CHANGED: such tables are never used again, so a host that held only those, or none, has no tables until a load succeeds."
+  handle_after = "last-known-good"
+  ```
+
+  The header comment gains, after its list of `handle_after` values: "last-known-good means the host keeps the handle or tables it was using before the call; tables that returned GRDR_E_CHANGED are never last-known-good."
+- **#245, `spec/host-contract/tables.md` lines 386 and 387.** The sentence "A rule that fails leaves the host with no new table handle; the tables it loaded before stay in use, and the host applies the class's declared `on_failure` (D-15) and reports the status." becomes:
+
+  > A rule that fails leaves the host with no new table handle. The host keeps the tables it was using, unless those tables returned `GRDR_E_CHANGED`: tables that did are retired with their cache generation and never used again (section 10), so a host that held only them, like one that has loaded none, has no tables. While it has none, every floor lookup is answered as when the floor cannot answer: an action class whose declared `on_failure` (D-15) is `closed` denies, and one whose `on_failure` is `open` goes on as after a `pass` (section 6). Either way the host reports the status.
+- **#1538, R3 and the soak line.** R3 becomes:
+
+  > R3. The daemon validates the floor blob with #409's validator before use, and after `load`, before it adopts the handle, checks the header against its ceilings (RFC 0005 R5.3). A valid blob within the ceilings replaces the current `FloorSource` between decisions. A blob that fails validation or a ceiling, a failed compile or a failed self-test is refused, and the daemon's floor state stays as it was (RFC 0005 section 2a): serving tables stay in use; in floor-missing after `Changed` it stays floor-missing and never returns to the retired tables, since tables that returned `Changed` are never last-known-good; on first start, with no tables and no loaded pack, #427's `floor-missing` holds and every class denies. The compile instance of R2 is also the reload source of RFC 0005 R2.18: a reload after `Changed` compiles the active bundle again in a fresh instance, and the daemon keys the reload episode by the SHA-256 of the blob it adopts.
+
+  The soak line becomes:
+
+  > Trust core: soak evidence is `cargo test -p grdr-daemon --test bundle_adopt -- --ignored soak`, 1,000 activations under a 50-per-second Decide load with zero unanswered calls. While the daemon holds tables, every answer comes from either the old or the new table, never neither. The soak also changes the serving storage at seeded points so that the serving handle returns `Changed`. From that call until a reload or an activation is adopted, every answer is floor-missing (the action class's declared `on_failure`, with `degraded_reason` `floor-missing`), none comes from the retired table or from a verdict cached under its generation, and an activation refused in that state leaves the daemon floor-missing.
 
 **Design documents** (the chief architect, through one issue):
-- **design/26 section 2.** The sentence that fast-path functions return `GRDR_E_ARG`, `GRDR_E_ABI`, `GRDR_E_BUNDLE` and `GRDR_E_STATE` gains `GRDR_E_CHANGED` for a blob or arena that no longer reads as loaded.
-- **design/26 section 3, error model.** The status table gains the row `GRDR_E_CHANGED` (11), "Reload from a freshly verified copy; until then the floor counts as missing".
+- **design/26 section 2.** The sentence that fast-path functions return `GRDR_E_ARG`, `GRDR_E_ABI`, `GRDR_E_BUNDLE` and `GRDR_E_STATE` gains `GRDR_E_CHANGED` for a blob, arena or handle that no longer reads as loaded.
+- **design/26 section 3, error model.** The status table gains the row `GRDR_E_CHANGED` (11), "Retire the handle and its generation, reload from a freshly verified copy, and until then answer as the floor cannot".
+- **design/26 section 3, retries.** It owns `fastpath-reload`: `kind = "exponential"` with no `honour_hint`, the first attempt at once, a call timeout that ends a hung attempt, a breaker and a give-up. It also owns `fastpath.reload-settle`. The values are `limits.toml` rows that name design/26 as their owner.
 - **design/03 section 2, crate table.** `grdr-fastpath`: "`no_std` table evaluator over fixed-layout inputs, the table layout `grdr-core` writes through, and the bounded field scanner; no dependencies". `grdr-fastpath-ffi`: "`extern "C"` entry points and the `#[repr(C)]` structs of `grdr_fastpath.h`, so `libgrdr_fastpath` carries no engine code (26); core squad".
 - **design/03 section 2, same-layer edges.** "`grdr-core` to `grdr-fastpath` (table layout only: module `compile::fastpath` imports `grdr_fastpath::layout`, its types, constants, codecs and the cost function of the table format)".
 - **design/03 section 10, Errors.** "One error enum per crate, or per module where the module is a future crate or serves its own interface. A variant that only wraps another bound error takes that error's code" (R4.6).
+- **design/03 section 10, Retries.** The list of named policies gains `fastpath-reload` (26).
 - **design/12 section 16.** A property row: "Interest set covers the floor rows | the compiled interest set | exhaustive up to 20 class bits, random above" (R3.9).
 
 **Gate and registry files** (protected changes):
-- **`architecture.toml`.** On the `grdr-core` to `grdr-fastpath` edge, `importers = ["compile::fastpath"]` and `paths = ["grdr_fastpath::layout"]` beside the existing `scope`, whose text gains "and the cost function". The twelve per-variant ARCH-017 entries of R4.1. One record of the independent pair `grdr-fastpath` and `grdr-core`, whose reason names the no_std fast path of P17 and the B2 differential (#20) that holds them equal.
+- **`architecture.toml`.** On the `grdr-core` to `grdr-fastpath` edge, `importers = ["compile::fastpath"]` and `paths = ["grdr_fastpath::layout"]` beside the existing `scope`, whose text gains "and the cost function". The eleven per-variant ARCH-017 entries of R4.1, and the status-only entries of R4.5 for `FastpathCompileError`'s leaves. One record of the independent pair `grdr-fastpath` and `grdr-core`, whose reason names the `no_std` fast path of P17 and the B2 differential (#20) that holds them equal.
 - **`surfaces.toml`.** The `[[crate]]` row kind and its three rows (R6.1).
 - **`schema/codes/`.** Area `COMPILE` and its three entries (R4.4); area `FASTPATH` with one entry per leaf variant and the three state codes (R4.3).
 - **`security/requirements.yaml`.** The requirements eval-security's threat-model deltas propose, filed for the security squad:
   - from round 1, SR-new-A to SR-new-E: re-checked storage with a distinct status, the FFI's length and overlap rules, unknown case folds, interest coverage, and host ceilings;
-  - from round 2, SR-new-F and SR-new-G: blob and whole arena in custody until quiescence, and `reload-required` as a floor-missing state with a bounded reload. SR-new-A gains "a re-check applies at first read, over one view per call".
-- **`limits.toml`.** The four rows of #1768, unchanged by this RFC. A new protected item adds `fastpath.host_eval_cap_ceiling_steps`, `fastpath.host_path_max_units_ceiling` and `[retry.fastpath-reload]` (R5.3, R2.18).
+  - from round 2, SR-new-F and SR-new-G: blob and whole arena in custody until quiescence, and `reload-required` as a floor-missing state with a bounded reload. SR-new-A gains "a re-check applies at first read, over one view per call";
+  - from round 3, SR-new-H to SR-new-J: a reload stop keyed on the blob's bytes, with the policy refilled only after probation; a retired generation that never answers, and discarded results of calls in flight; no re-check that fails on valid, unchanged storage;
+  - from revision 4, SR-new-K to SR-new-N: a sticky `Changed` and a C record check that precedes any read through the record; input custody with each field read once; an unresolved value that never gives a cacheable `pass`; and verdict reuse that only the signed bundle can lengthen.
+- **`limits.toml`.** The four rows of #1768, with RFC 0007's names and keys (R5.1, R5.3). A new protected item adds `fastpath.host-eval-cap-ceiling`, `fastpath.host-path-max-ceiling`, `fastpath.reload-settle` and `[retry.fastpath-reload]` (R5.3, R2.18, R2.19).
 
 ### 13. What each item changes
 This RFC is normative. Each lead writes these changes back into its item before readying it.
 - **#409.**
   - R2's layout types are `grdr_fastpath::layout` (section 3), with `Record` sealed.
-  - R3 and R4 are `arena_size` and `load` as R2.1 and R2.2 state, over `Tables<B, A>`, keeping the storage lengths and the header copy.
-  - R5's errors are `Abi`, `Bundle(Rule(n))`, `Bundle(TooLarge)` and `Arg(Arena)`, with the rule number from `Error::rule`.
-  - It adds `clippy::as_conversions` to the crate root, and the redacting `Debug` of its types.
+  - R3 and R4 are `arena_size` and `load` as R2.1 and R2.2 state, over `Tables<B, A>`, keeping the storage lengths, the header copy and a clear changed flag. The arena size has R2.1's bound and no error of its own.
+  - R5's errors are `Abi`, `Bundle(Rule(n))` and `Arg(Arena)`, with `TvRule` unable to hold 3 and the number from `Error::rule`. It adds `fastpath_rule_variant`.
+  - It adds `clippy::as_conversions` to the crate root, and the derives and redacting `Debug` of R1.7 for its types.
   - Its write set gains `crates/grdr-fastpath/src/layout.rs`, `crates/grdr-fastpath/src/layout/**` and `crates/grdr-fastpath/AGENTS.md`, whose purpose line no longer says the inputs are `#[repr(C)]`.
   - `proptest` may be its dev-dependency (R7.1).
-- **#410.** `classify` is public and returns `Option<ClassBits>` as R2.4 states. It fails with `Bundle(EvalCap)` or `Changed`, never partial bits. It makes RC2 in its cost step and RC4 to RC6, `prefix_len` included, at the first read of what each guards, and adds their tests. The cost is the shared function of `layout`.
+- **#410.** `classify` is public and returns `Option<ClassBits>` as R2.4 states, with the bits of R2.3b for `Unresolved` inputs. It fails with `Bundle(EvalCap)` or `Changed`, never partial bits. It checks the changed flag first, makes RC2 in its cost step and RC4 to RC6, `prefix_len` included, at the first read of what each guards, passes its views to the pairing checks, and adds the tests of those checks and of the sticky flag. The cost is the shared function of `layout`.
 - **#412.**
   - `eval` returns `Verdict` with the scopes of R1.3 and R1.4, in the order of R2.3.
   - R2's vocabulary case follows `tables.md` section 6: a class within the ABI but above `action_class_count` is `Pass { scope: None }`, not `Arg`.
-  - It makes RC1 to RC3, RC5 and RC6 at the first read of what each guards, the cost step included, over one view of each storage per call (R2.10). RC2 checks the boundary rows. It adds the tests of R2.15 and the type-level test of R2.6.
-  - `check_pairing` is public (R2.3), and `reason` returns `Result` (R2.7). R7's `interest` is R2.5's.
+  - `Input` carries `Resolution` for its three resource inputs, evaluated as R2.3b says, and the path form is R2.3a's. It adds `fastpath_unresolved`, the `fastpath_path_form` vector table, and a label-tag vector whose first eight digest bytes are not a palindrome.
+  - It makes RC1 to RC3, RC5 and RC6 at the first read of what each guards, the cost step included, over one view of each storage per call, with the views passed to the pairing checks (R2.10). RC2 checks the boundary rows. The changed flag is sticky (R2.12a). It adds the tests of R2.15 and the type-level test of R2.6.
+  - `check_pairing` is public (R2.3), and `reason` returns `Result` (R2.7). R7's `interest` is R2.5's. `Tables::storage` is public (R1.12).
   - Its arena holds the run index and nothing else (R2.11).
 - **#414.**
-  - R1 is `compile_fastpath` as section 4 states, with `Facts`, `CaseRule::Unknown` and `FastpathLimits`. R6's report gains the outcomes of `tables.md` section 13.
-  - R8 reads its bounds through `FastpathLimits`. R9 binds to area `COMPILE` (R4.4), which it creates if #71 has not.
-  - It adds `fastpath_compile_interest` with its process-scope inputs, catalogue fixture and one witness per row (R3.9), the fold test, the cost-refusal, `from_limits` and action-class-ceiling tests, and the masking helper (R6.6).
-  - Its `grdr-core` types follow R1.7's `Debug` rule.
+  - R1 is `compile_fastpath` as section 4 states, with `Facts`, `CaseRule::Unknown`, `FastpathLimits` and `Narrowing`. R6's report gains the outcomes of `tables.md` section 13.
+  - R8 reads its bounds through `FastpathLimits`, under the source rules of R5.2a. R9 binds to area `COMPILE` (R4.4), which it creates if #71 has not.
+  - It adds `fastpath_compile_interest` with its process-scope inputs, catalogue fixture, unresolved actions and one witness per row (R3.9), the fold test, the cost-refusal, `from_limits`, `fastpath_expiry_source` and action-class-ceiling tests, and the masking helper (R6.6).
+  - Its `grdr-core` types follow R1.7's derives and `Debug` rule, and `FastpathCompileError` implements `Display` and `core::error::Error`.
 - **#418.**
-  - It defines the C structs (R1.10), and converts and checks in R1.11's order, calling `check_pairing` before its own field and length checks, with one test per rule. It lays out its arena as R1.12 says, with the custody text in its `SAFETY` comment.
-  - It maps verdicts and errors as R1.13 and R1.14 say, adds `status_per_variant` reading the `architecture.toml` entries (R4.2), and adds `clippy::as_conversions` to its root.
+  - It defines the C structs (R1.10), with the `unresolved` field, and converts and checks in R1.11's order, calling `check_pairing` before its own field and length checks, with one test per rule. Its conversion takes the input struct by value (R1.11a).
+  - It lays out its arena as R1.12 says: the handle record with its address, the raw views, the check word and its changed flag, with the custody text in its `SAFETY` comment. It adds `ffi_record_changed` and `ffi_changed_sticky`.
+  - It maps verdicts, interest views and errors as R1.13 and R1.14 say, with the empty-section test, adds `status_per_variant` reading the `architecture.toml` entries and the five parent pairs (R4.2), runs the `fastpath_path_form` table through its differential, and adds `clippy::as_conversions` to its root.
 - **#388.** `grdr.h` takes the shared status block, so `grdr-ffi` defines `GRDR_E_CHANGED` with `c_status!` to pass `HDR-4`, though no engine function returns it. Its `grdr_status_str` returns the new row's name, and its handle-state tests list the `reload-required` value.
-- **#1778.** `content::grdr_status` renders row 11 in both C ABI headers. Its row reader also reads the ARCH-017 entries of `architecture.toml`, which use the same one-string-per-line subset, for `status_per_variant` and `code_per_variant`.
-- **#20.** No change beyond the names: R2 calls `compile_fastpath`, `load` and `eval`, and R5 calls `classify`, whose `None` case it skips.
-- **#71.** Its step 8 writes the fast-path blob by calling `compile_fastpath` (R3.3), and its `compile` takes `DeviceFacts` (R3.5). Its error is the one `Effective` wraps, and it may create area `COMPILE` for it (R4.4).
+- **#1778.** `content::grdr_status` renders row 11 in both C ABI headers. Its row reader also reads the ARCH-017 entries of `architecture.toml`, which use the same one-string-per-line subset, for `status_per_variant`, `code_per_variant` and `compile_status_per_variant`.
+- **#20.** No change beyond the names: R2 calls `compile_fastpath`, `load` and `eval`, and R5 calls `classify`, whose `None` case it skips. Its differential draws `Resolved` and `Absent` inputs only, since the engine has no worst-case bits for an unresolved value.
+- **#71.** Its step 8 writes the fast-path blob by calling `compile_fastpath` (R3.3), and its `compile` takes `DeviceFacts` (R3.5). Its error is the one `Effective` wraps, and it may create area `COMPILE` for it (R4.4). It states the C status of each leaf of `EffectiveCompileError` and adds their status entries (R4.5).
 - **#427.**
-  - Its floor module maps every `grdr_fastpath` leaf variant to its own coded error, registers area `FASTPATH` with the three state codes, and adds `code_per_variant` (R4.3).
-  - Its floor state is an explicit type with section 2a's states and exits: serving, and floor-missing with its reload pending or ended. `fastpath_reload` tests them (R2.20).
-  - On `Changed` it answers as R8's floor-missing until a reload succeeds.
+  - Its floor module maps every `grdr_fastpath` leaf variant to its own coded error, registers area `FASTPATH` with the three state codes, raises a tamper finding on a repeat, and adds `code_per_variant` (R4.3).
+  - Its floor state is an explicit type with section 2a's states, events and exits: no tables with no loaded pack, serving with no episode, serving on probation, and floor-missing with its reload pending or ended. `fastpath_reload`, `fastpath_reload_cache` and `fastpath_reload_loop_stops` test them (R2.20).
+  - On `Changed` it retires the handle and its generation (R2.16) and answers each class as R5 does when the floor passes, with `degraded_reason` `floor-missing`, until a reload or an activation is adopted (R2.17). R8's deny-all stays for a start with no tables and no loaded pack.
 - **#1538.**
+  - R3 and the soak line take the exact text under "Required amendments".
   - Its `Refused { code }` uses the load-side `FASTPATH` codes.
-  - After `load` and before it adopts the handle, it checks `Tables::header()` against the ceiling rows of R5.3, and tests that the compiler's defaults sit at or below them.
-  - It recompiles when the device's volumes change (R3.5), and its fresh compile instance is the reload source of R2.18.
-- **#1769.** It gains the daemon's negative tests for both ceilings (R5.3), and its custody race test covers the arena (R2.14).
-- **#1768.** Its rows are what `FastpathLimits::from_limits` reads, and it settles their units with #279 (Unresolved question 3).
-- **#1582.** ARCH-013 reads the edge's `importers` and `paths`. ARCH-017 reads the per-variant entries, checks their `status`, `code`, `bound_in` and `coded_by`, applies the wrapper rule, and fails a variant without an entry (R4.1).
+  - It tests that the compiler's defaults sit at or below the ceiling rows of R5.3.
+  - It recompiles when the device's volumes change (R3.5).
+- **#1769.** It gains the daemon's negative tests for both ceilings (R5.3), and its custody race test covers the arena (R2.14) and a verdict cached before `Changed`, which is never read while the floor is missing (R2.16).
+- **#1768.** Its rows take RFC 0007's names and keys (R5.1, R5.3). They are what `FastpathLimits::from_limits` reads, and the expiry rows hold amounts in `ms`, never a value for "until the scope ends" (R5.2, R5.2a).
+- **#1582.** ARCH-013 reads the edge's `importers` and `paths`. ARCH-017 reads the per-variant entries, exemptions and status-only entries alike, checks their `status`, `code`, `bound_in` and `coded_by`, applies the wrapper rule, and fails a variant without an entry (R4.1).
 - **#1475.** Its Miri job covers the two fast-path crates as section 11 states.
-- **#246 and #245.** The deltas of section 12, and the alignments of Unresolved question 2.
+- **#246 and #245.** The deltas of section 12, its required amendments, and the alignments of Unresolved question 2.
 
 Filed on acceptance, each linked as it blocks:
 - the `architecture.toml` change of section 12, a protected change for lead-agent-kit, blocking #414, #418 and #427;
 - the `surfaces.toml` row kind and rows of R6.1, a protected trust-core change, blocked by #1817;
 - the design/03, design/12 and design/26 amendments of section 12, for the chief architect;
-- the `limits.toml` item for the two ceiling rows and `[retry.fastpath-reload]` (R5.3, R2.18), a protected change for lead-agent-kit, blocking #1538 and #427;
-- the `grdr-ffi` item that adds `grdr_engine_compile_fastpath` in a later C ABI minor (R4.5), which decides whether it takes a limits input;
+- the `limits.toml` item for the two ceiling rows, `fastpath.reload-settle` and `[retry.fastpath-reload]` (R5.3, R2.18, R2.19), a protected change for lead-agent-kit, blocking #1538 and #427;
+- the `grdr-ffi` item that adds `grdr_engine_compile_fastpath` in a later C ABI minor (R4.5), which decides whether it takes a limits input and adds `compile_status_per_variant`;
+- the bundle manifest field that chooses `ScopeEnd` per scope (R5.2a), with the RFC a bundle format change needs, for squad core;
 - the fuzz item of section 11, blocked by #415 and #409;
 - the `security/requirements.yaml` item of section 12, for the security squad.
 
@@ -605,8 +755,8 @@ Filed on acceptance, each linked as it blocks:
 - `grdr-fastpath` (public crate, layer 1, `experimental`): its first surface, the items of section 1 and the module `layout` of section 3.
 - `grdr-fastpath-ffi` (public crate, layer 1, `experimental`): the `#[repr(C)]` structs of section 5 beside the `extern "C"` items of `c-abi.md`.
 - `grdr-core` (public crate, layer 1, `experimental`): module `compile::fastpath`, with the items of section 4.
-- The host contract, as changes for #246 and #245: a new status `GRDR_E_CHANGED` and its `handle_after` value with the host state it names, new statuses on two fast-path rows, the `grdr_fp_eval` order, the argument, length and range rules, arena custody, and the `tables.md` obligations of section 12.
-- As proposals: the `[[crate]]` row kind and three rows of `surfaces.toml`; the `architecture.toml` edge keys, per-variant ARCH-017 entries and independent-pair record; the design/03, design/12 and design/26 text of section 12; areas `COMPILE` and `FASTPATH` in `schema/codes/`; two ceiling rows and a retry policy in `limits.toml`.
+- The host contract, as changes for #246 and #245: a new status `GRDR_E_CHANGED` and its `handle_after` value with the host state it names, new statuses on two fast-path rows, the `grdr_fp_eval` order, the argument, length, range and record rules, the `unresolved` input field, arena and input custody, the fast path's flag writes, the `GRDR_E_BUNDLE` row and `last-known-good`, and the `tables.md` obligations of section 12.
+- As proposals: the `[[crate]]` row kind and three rows of `surfaces.toml`; the `architecture.toml` edge keys, per-variant and status-only ARCH-017 entries and independent-pair record; the design/03, design/12 and design/26 text of section 12; areas `COMPILE` and `FASTPATH` in `schema/codes/`; two ceiling rows, a settle row and a retry policy in `limits.toml`; a bundle manifest field, left to its own RFC.
 - No change to a protobuf package, the Cedar schema, a same-layer edge, the spine or the licence policy.
 
 ## Alternatives
@@ -616,19 +766,36 @@ Filed on acceptance, each linked as it blocks:
 - **Re-running every TV rule on each call.** Each rule is linear in the blob, against a per-call bound of rows touched. Rejected for the closed re-check list.
 - **Re-checks after the cost step** (revision 2). The cost reads the run index and the pattern lengths, so a changed index came back as `EvalCap`, whose `handle_after` keeps the tables. Rejected for re-checks at first read (R2.12).
 - **RC2 as a bounds check alone** (revision 2). An emptied run passes it, and the call returns a cacheable `Pass`. Rejected for the boundary rows, which TV-27's order makes exact.
+- **A pure handle that answers again once its storage reads valid** (revision 3). A flaky page, or a writer that restores the byte after the call that tripped, would resume answers from tables known to have changed. Rejected for the sticky flag (R2.12a), which costs one atomic load per call.
+- **Comparing the C views with the handle's own fields alone** (revision 3). RC1 then compares the handle with itself, and one pointer-sized write redirects the blob. Rejected for the record's stored address and check word (R1.12).
+- **A record the host cannot reach, such as a static table of handles, or a keyed check word.** The library holds no global state, has no memory a same-privilege writer cannot change, and has no secret to key a check with. Rejected; intent stays with custody (R2.13).
 - **Keeping the dropped tables until a reload succeeds.** Every answer in between would come from bytes known not to be the ones validated. Rejected for floor-missing (R2.17).
-- **Unbounded reloading.** A defect in `load` gives `Changed` on every fresh copy, so the host would loop. Rejected for the retry policy and the same-envelope stop (R2.18, R2.19).
+- **Keeping the retired generation's cache entries** (revision 3). A `pass` cached at scope `bundle` would answer for the whole outage, and a call in flight would add more. Rejected for R2.16.
+- **Deny-all while the floor is missing** (revision 3). It wrote a failure policy into the daemon while the bundle's declared one was still loaded, against D-15 and ADR-0012. Rejected for R2.17; deny-all stays only where no policy is loaded.
+- **Unbounded reloading.** A defect in `load` gives `Changed` on every fresh copy, so the host would loop. Rejected for the retry policy and the repeat rule (R2.18, R2.19).
+- **A reload stop keyed by the envelope, or with no time scope** (revision 3). Our daemon compiles and has no envelope, and with no scope two unrelated accidents far apart would end reloading until a restart. Rejected for episodes keyed by the blob's SHA-256 and closed by probation (R2.19).
+- **A probation counted in calls.** A device with little traffic would hold an episode open indefinitely. Rejected for `ms`.
+- **Calling a repeat a library defect** (revision 3). A continuing writer would be filed as a bug and raise no finding. Rejected for neutral codes and a tamper finding (R2.19, R4.3).
 - **Host ceilings as `grdr.config` keys.** They are bounds with no stated operator use, so they are `limits.toml` rows (R5.3). An operator setting can be added when a use is stated.
 - **The leaf-to-status mapping in the test as well as the entries and the FFI** (revision 2). Three copies, two of them unchecked against each other. Rejected for entries as the one copy, with both `match` expressions checked against them (R4.1, R4.2).
 - **The handle inside the arena in Rust too.** Writing a typed value into caller bytes needs `unsafe`. Rejected; the FFI crate does it (R1.12).
-- **`Changed` as `GRDR_E_BUNDLE` with a wider meaning** (revision 1). Its `handle_after`, `last-known-good`, tells the host to keep the tables it has, which are the altered ones. Rejected for `GRDR_E_CHANGED`.
+- **`Changed` as `GRDR_E_BUNDLE` with a wider meaning** (revision 1). Its `handle_after`, `last-known-good`, tells the host to keep the tables it has, which are the altered ones. Rejected for `GRDR_E_CHANGED`, and the `GRDR_E_BUNDLE` row now says tables that returned it are never kept.
 - **`Changed` as `GRDR_E_INTERNAL`.** Its meaning is a bug in the library and its `handle_after` is `poisoned`, which the library, holding no state, cannot enforce. A custody fault is not a library bug. Rejected.
 - **`#[non_exhaustive]` error enums.** The FFI match would need a wildcard, and a new variant would map silently. Rejected for R1.6.
 - **An ARCH-017 exemption by type** (revision 1). A variant added later would be exempt with no decision, and a match on `Arg(_)` would let a new `ArgFault` inherit a status. Rejected for R4.1 and R4.2.
 - **Codes bound in `grdr-core`, or through a test-only `grdr-schema` dev-dependency** (options (a) and (c)). Rejected for section 6.
 - **One error variant per TV rule.** It is 33 variants that #245 can still renumber. `TvRule` carries the number. Rejected.
+- **`TvRule` able to hold 3** (revision 3). TV-3 had two representations, and `Bundle(Rule(3))` would tell a host to keep tables a library cannot read. Rejected for R1.5.
+- **`TooLarge` for the arena** (revision 3). R2.1's bound makes it unreachable, so its variant, entry, status sentence and test could never be exercised. Rejected.
+- **An unresolved value as `Arg(Path)` for the classes that carry a path.** It mixes a host fact with a host bug, and the library would need a list of which classes carry a path, which is vocabulary written into code (P14). Rejected for `Resolution` (R2.3b).
+- **An unresolved value as `pass` with scope `none`.** The floor would defer to the engine, which `tables.md` section 8 does not trust for these rows, and an agent that can make the host fail to resolve a path would reach the engine's answer. Rejected for worst-case class bits.
+- **`step_up` for every row an unresolved value could meet,** D-10's request-level answer. An agent that can make a path unresolvable would turn Block rows into Ask. Rejected for each row's own outcome.
+- **A wider path-form check in the library,** such as normalisation form C or a link-free path. The library cannot see links or volumes, and a normalisation check needs data tables a `no_std` library with no dependency does not carry. Rejected for R2.3a's syntactic subset.
+- **Copying the input path once into the library.** The library allocates nothing, and a path bounded only by `path_max_units` has no stack bound. Rejected: fields are copied once, and the bytes are the host's to keep stable (R1.11a).
 - **The cap as a generated constant in `grdr-fastpath`.** Rejected for section 7.
 - **Host ceilings as parameters of the Rust `load`.** The Rust and C entry points would differ, and `Tables::header()` already gives the host the one copy every call reads. Rejected for R5.3.
+- **`FastpathLimits::new` with free values** (revision 3). A caller could raise a bound above its row, or choose `ScopeEnd`. Rejected for `narrow` (R3.6).
+- **`ScopeEnd` chosen by a `grdr.config` key, or by an argument of `from_limits`** (RFC 0007 revision 2's open options). A setting could lengthen reuse with no organisation signature, which SR-26 counts as widening. Rejected for R5.2a.
 - **`compile_fastpath(bundle) -> Blob`** (#405 R3 as written). It drops the floor report #414 and #71 read, and the device facts and limits `tables.md` sections 2 and 13 need. Rejected.
 - **`compile_fastpath` over an effective bundle.** That type does not exist yet (#71), and the verified bundle is the only input a host can vouch for (design/03 section 3). Rejected for now. When #71 lands, both call one emitter (R3.3).
 - **A caller-set `compiler_version`.** It would let a caller write a false version into the field that says which compiler wrote the blob. Rejected for the masking helper of R6.6.
@@ -637,39 +804,42 @@ Filed on acceptance, each linked as it blocks:
 - **A separate layout crate.** It adds a crate and two edges, and gives `grdr-fastpath` a dependency against design/26 section 2. Rejected.
 - **The layout defined in `grdr-core` and read again by `grdr-fastpath`.** Two definitions of one format (P17), and the edge runs from `grdr-core` to `grdr-fastpath`, not back. Rejected.
 - **`classify` behind a `test-util` feature.** ARCH-008 allows the feature, but a build-dependent public surface is harder to reason about than a small public function. Rejected.
-- **No `Display` on `Error`** (revision 1). The daemon could not use `?` into a boxed error. A `Display` that writes identifiers is not person-facing text. Rejected.
+- **No `Display` on `Error`** (revision 1). The daemon could not use `?` into a boxed error. A `Display` that writes identifiers is not person-facing text. Rejected, and `FastpathCompileError` takes the same rule.
 
 ## Drawbacks
 - Two input types, `Input` and `grdr_fp_input`, with a conversion that #418's differential has to hold.
 - Every function carries the storage parameters `B` and `A`.
-- The re-checks detect only changes that break one of six invariants. An in-place change to valid blob bytes, or in C to the handle, is answered, and only custody prevents it (R2.13).
-- RC2's boundary rows add up to four row reads to every call.
-- Every host carries a floor-missing state with a bounded reload and its exits (section 2a), and our daemon carries three more codes for it.
-- A new status, `GRDR_E_CHANGED`, and a new `handle_after` value for every C host to handle.
-- Twelve exemption entries in `architecture.toml`, one per leaf, and a daemon wrapper that repeats the leaves to bind their codes.
+- The re-checks detect only changes that break one of six invariants. An in-place change to valid blob bytes, or in C a record rewritten with its check, is answered, and in C that falls outside R2.9. Only custody prevents it (R2.13).
+- RC2's boundary rows add up to four row reads to every call, and in C the record check adds a few dozen word operations.
+- The changed flag gives the handle one atomic, and the FFI writes the arena after `load` for its two flags.
+- Every host carries a floor-missing state with episodes, probation, a bounded reload and its exits (section 2a), and our daemon carries three more codes and a tamper finding for it.
+- An unresolved value meets every row of its classes, so a host that often fails to resolve paths sees more denials, each with its rule and reason.
+- Until the bundle manifest field exists, no blob reuses a verdict to the end of its scope, so bundle and session reuse are the rows' amounts.
+- A new status, `GRDR_E_CHANGED`, a new `handle_after` value and a new input field for every C host to handle.
+- Eleven exemption entries in `architecture.toml`, one per leaf, status-only entries for the compile errors, and a daemon wrapper that repeats the leaves to bind their codes.
 - Exhaustive enums make every new variant a breaking change, which `experimental` allows and a later class will price.
-- The FFI crate needs one more `unsafe` block, to place the handle in the arena.
+- The FFI crate needs one more `unsafe` block, to place the record in the arena.
 - Golden blob tests need a masking helper for `compiler_version`.
 
 ## Unresolved questions
-1. **#245 is not merged, and round 3 failed on the commit this RFC reads.** At `115ec8b`, eval-security failed round 3 on the section 8 heading, on the library's own path and destination input checks, which became undefined when canonicalisation moved to the host, and on host obligations no item carried (#1769) or could meet (#1770). The orchestrating session allowed a round 4. If #245 lands with different text, this RFC needs an amendment when any of these change:
+1. **#245 is not merged, and round 3 failed on the commit this RFC reads.** At `115ec8b`, eval-security failed round 3 on the section 8 heading, on the library's own path and destination input checks, which became undefined when canonicalisation moved to the host, and on host obligations no item carried (#1769) or could meet (#1770). The orchestrating session allowed a round 4. R2.3a now states the path checks the library makes. If #245 lands with different text, this RFC needs an amendment when any of these change:
    - an error class, a status, or which rule gives `GRDR_E_ABI`;
    - the numbering or grouping of the TV rules, which R1.5, R2.1 and R2.2 bind (TV-3, TV-1 to TV-14, TV-15 to TV-33) and section 2 cites (TV-16, TV-19, TV-24, TV-26, TV-28 to TV-30);
    - an input field, such as `grant_digest` if #1770 changes how grants reach the host;
    - the section list or a record's fields, which `layout` mirrors;
    - a function, or a header field the compiler writes from `limits.toml`;
-   - which argument checks belong to the library, which R2.3 step 2 defers to `tables.md` section 6.
+   - which argument checks belong to the library, which R2.3 step 2 and R2.3a fix.
 
    A change to a rule's content inside one of these, or to the cost model, changes no item here. Accepting this RFC does not wait on #245, and #409, #410, #412 and #414 each already require it.
 2. **`c-abi.md` at `ca039ed` differs from `tables.md` at `115ec8b`.** This RFC follows `tables.md`, #246 aligns these with `tables.md` as merged, and #418 is blocked by #246. The differences:
    - the `grdr_fp_load` row applies "TV-15 to TV-31", where `tables.md` has 33 rules;
    - `grdr_fp_eval` check 3 makes an action class above `action_class_count` an argument error, where `tables.md` section 6 gives `pass` with scope `none` within the ABI;
-   - the `grdr_fp_eval` row, check 4 and the `GRDR_E_BUNDLE` meaning in `status-codes.toml` say an evaluation "reaches" `eval_cap`, where `tables.md` section 7 says a cost that "exceeds" it, so a cost equal to the cap gets a verdict from one and an error from the other;
+   - the `grdr_fp_eval` row, check 4 and the `GRDR_E_BUNDLE` meaning in `status-codes.toml` say an evaluation "reaches" `eval_cap`, where `tables.md` section 7 says a cost that "exceeds" it, so a cost equal to the cap gets a verdict from one and an error from the other. The required amendment of section 12 settles the registry row;
    - the `expiry_ns` comment says "0: no bound beyond the scope", where `tables.md` section 6 makes 0 "never reused" and all ones "until the scope ends";
-   - check 3 points the name form at TV-20, the path grammar, rather than section 3.3 and TV-21, and the path form at #221 R4 rather than `tables.md` sections 6 and 11;
+   - check 3 points the name form at TV-20, the path grammar, rather than section 3.3 and TV-21, and the path form at #221 R4 rather than R2.3a;
    - the `grdr_fp_eval` row and the `grdr_fp_verdict` text cite `tables.md` section 5 for evaluation, scope and expiry, which are section 6, and section 5 cites `tables.md` section 9 for the arena rule, which is section 10;
    - the `grdr_fp_verdict` text has a host clear its cache on a swap, where `tables.md` section 10 keys entries by a generation and needs no clearing.
-3. **The units of #1768's rows.** #279 R1 gives a bound one of `bytes`, `count`, `ms` or `permille`, while #1768 asks for nanoseconds with all ones meaning until the scope ends. #1768's lead settles the form with #279: a nanosecond unit, or a millisecond row the compiler converts with checked arithmetic, plus a way to write "until the scope ends". Either way R5.5 holds.
+3. **RFC 0007 is in review.** The row names of R5.1 and R5.3 follow its revision 2, and the `min`, `max`, `scope` and `effect` keys of R5.3 follow the session's ruling 7 for its revision 3. If RFC 0007 is accepted with other names or keys, the `limits.toml` items use them, which changes no rule here.
 4. **The ARCH-017 exemption list.** RFC 0002 (#1688, in review) proposes its form. If neither RFC is accepted with it, the `architecture.toml` item of section 12 creates the list with the typed fields of R4.1.
 5. **Types other items define.** `PathContext` (#221), `Ineligible` (#216), `EffectiveCompileError` (#71) and `RuleId` (the policy module, #212) are named here and defined by their items. If one of them lands with another name, the item that lands it renames the use here, which changes no rule of this RFC.
 
@@ -698,9 +868,14 @@ Round 2, on RFC file blob `c90f24fe5cf9d87dab1934bcf928d965762bf9ba`:
 - `eval-architecture`, pass with seven minors: https://github.com/416rehman/Guardrails/issues/405#issuecomment-7072611466
 - `eval-security`, fail: https://github.com/416rehman/Guardrails/issues/405#issuecomment-7072851867
 
-The round 2 pass names blob `c90f24f`, not this revision, so the decision needs a pass on this revision's blob.
+Round 3, on RFC file blob `3e4cfa0bf0f99db51fbf5d8efb9bc929529f956d`:
+- `eval-security`, pass with O1 to O8: https://github.com/416rehman/Guardrails/issues/405#issuecomment-7073192126
+- `eval-architecture`, fail on one major and three minors: https://github.com/416rehman/Guardrails/issues/405#issuecomment-7073250699
+- `eval-api`, pass with M1 to M6: https://github.com/416rehman/Guardrails/issues/405#issuecomment-7073269374
+- `eval-adversarial`, fail on A1 and A2, with A3 to A8: https://github.com/416rehman/Guardrails/issues/405#issuecomment-7073332008
+- The session's rulings for revision 4: https://github.com/416rehman/Guardrails/issues/405#issuecomment-7073341195, and ruling 9 on #1710: https://github.com/416rehman/Guardrails/issues/1710#issuecomment-7073495899
 
-Round 3, on this revision: `eval-architecture` (a delta review), `eval-security`, `eval-api` and `eval-adversarial`, then the nine seats, all on the same blob.
+Round 4, on this revision: `eval-architecture` and `eval-adversarial` on the other model from the metadata block, `eval-security` on the drafting model, and a delta check by `eval-api`, then the nine seats, all on the same blob. The three required amendments of section 12 are posted on #246, #245 and #1538 before the decision, and the "RFC 0005 revision 4" comment on #405 links them.
 
 ## Decision
 None yet.
