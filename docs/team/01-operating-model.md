@@ -115,11 +115,11 @@ Gate configuration (`.claude/settings.json`, `.github/`, lint and deny configura
 
 `design/30` section 2 owns the contribution rules for everyone; this section fixes what agents do.
 
-**Identities.** Every agent acts under the owner's `gh` login on the owner's machine, and only `gh` reaches GitHub, never a GitHub MCP server (owner instructions 5, 6 and 23). No agent holds merge rights, a code-owner entry or a vote, and no evaluator output is a pull-request approval (D-61, D-63). Implementers push only their `issue/<n>` branch; the orchestrating session opens and merges the pull request.
+**Identities.** Every agent acts under the owner's `gh` login on the owner's machine, and only `gh` reaches GitHub, never a GitHub MCP server (owner instructions 5, 6 and 23). No agent holds merge rights, a code-owner entry or a vote, and no evaluator output is a pull-request approval (D-61, D-63). Implementers push only their `issue/<n>` branch; the orchestrating session opens its draft pull request at the first push and merges it.
 
 **Commit messages.** Every commit message is one line: a Conventional Commit subject `type(scope): summary` (`feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`, `revert`), an optional lower-case scope, `!` before the colon for a breaking change, and at most 72 characters. No body, no trailer and no credit line; Claude Code's `attribution.commit` and `attribution.pr` stay empty (owner instruction 27). release-please reads a body line such as `feat: ...` as a second commit and drops a commit it cannot parse, so one line is the only form that works. Parentheses in the subject are balanced and not nested.
 
-**The pull request.** Its title is the subject the squash commit will carry; its body is a short summary, the implementer's decisions where the spec was silent, and `Closes #<n>`. The session squash-merges with that subject and an empty body.
+**The pull request.** It opens as a draft at the first push, with `Refs #<n>` until landing. Its title is the subject the squash commit will carry; at landing its body is a short summary, the implementer's decisions where the spec was silent, and `Closes #<n>`. The session squash-merges with that subject and an empty body.
 
 **Releases and dependency updates.** release-please keeps one release pull request open with the versions and changelogs it derives from the subjects on `main` (owner instruction 3, `design/24` section 10). The release workflow signs artefacts keylessly with Sigstore, attests provenance and attaches SBOMs (owner instructions 7 and 23). Dependabot pull requests are reviewed by `garden-deps` on request and land once CI is green and the evaluators their diff calls for pass (owner instruction 22).
 
