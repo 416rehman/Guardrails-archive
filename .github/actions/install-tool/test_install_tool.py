@@ -8,7 +8,7 @@ other content uses a key the test makes with OpenSSL. Installer: seeded pins bui
 supply-chain/build-tools.toml and served by a local fake opener. InstallerRealArchive: the pinned
 archives, fetched over https through the installer's own checks, read against the system tar.
 ProxyName: every name in [install]. NoBuildFetch: the tracked tree (git ls-files) and the seeded
-copies in supply-chain/fixtures/install-tool/no-build-fetch.toml. ReleaseCheck: a fake gh.
+copies in supply-chain/fixtures/install-tool/no-build-fetch.toml. CheckRelease: a fake gh runner.
 """
 
 import ast
@@ -24,12 +24,14 @@ import os
 import pathlib
 import re
 import shutil
+import socket
 import subprocess
 import sys
 import tarfile
 import tempfile
 import tomllib
 import unittest
+import unittest.mock
 import urllib.request
 import urllib.response
 
@@ -281,8 +283,40 @@ def make_link(link, target):
         _winapi.CreateJunction(str(target), str(link))
 
 
-class Folder(unittest.TestCase):
+def real_archive_case(key):
+    def test(self):
+        self.check_row(key)
+    return test
+
+
+def release_listing(table):
+    listed = [{"name": table["checksums"], "size": table["checksums_size"], "digest": f"sha256:{table['checksums_sha256']}"}]
+    listed += [{"name": row["file"], "size": row["size"], "digest": f"sha256:{row['sha256']}"}
+               for row in table["assets"].values()]
+    if "signature" in table:
+        listed.append({"name": table["signature"], "size": table["signature_size"], "digest": "sha256:" + "0" * 64})
+    return listed
+
+
+def changed_entry(name, key, change):
+    return lambda listed: [dict(entry, **{key: change(entry[key])}) if entry["name"] == name else entry for entry in listed]
+
+
+def gh_printing(listed):
+    stdout = json.dumps({"assets": listed}).encode("utf-8")
+    return lambda command, timeout: subprocess.CompletedProcess(command, 0, stdout, b"")
+
+
+class Offline(unittest.TestCase):
     def setUp(self):
+        refuse = unittest.mock.patch.object(socket.socket, "connect", side_effect=AssertionError("a test opened a connection"))
+        refuse.start()
+        self.addCleanup(refuse.stop)
+
+
+class Folder(Offline):
+    def setUp(self):
+        super().setUp()
         self.folder = pathlib.Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, self.folder, True)
 
@@ -499,30 +533,32 @@ class InstallerRealArchiveTest(Folder):
     @classmethod
     def setUpClass(cls):
         cls.pin = install_tool.validate("protoc-gen-connect-openapi", PLUGIN, INSTALL)
+        cls.store = pathlib.Path(tempfile.mkdtemp())
+        cls.addClassCleanup(shutil.rmtree, cls.store, True)
         fetch = install_tool.opener()
-        cls.checksums = install_tool.download(cls.pin, cls.pin.checksums, fetch)
-        cls.assets = {key: install_tool.download(cls.pin, row.asset, fetch) for key, row in cls.pin.rows.items()}
+        for row in cls.pin.rows.values():
+            fetched = install_tool.fetch(cls.pin, row, fetch)
+            install_tool.verify(fetched, OPENSSL)
+            (cls.store / cls.pin.checksums.name).write_bytes(fetched.checksums)
+            (cls.store / row.asset.name).write_bytes(fetched.asset)
 
-    def test_member_bytes_equal_what_the_system_tar_prints(self):
+    def check_row(self, key):
+        row = self.pin.rows[key]
         tar = shutil.which("tar")
         self.assertIsNotNone(tar, "a system tar is the reference")
-        for key, row in self.pin.rows.items():
-            with self.subTest(platform=key):
-                (self.folder / row.asset.name).write_bytes(self.assets[key])
-                printed = subprocess.run([tar, "-xOzf", row.asset.name, row.member.name], cwd=self.folder,
-                                         capture_output=True, check=True).stdout
-                self.assertEqual(install_tool.archive_member(self.assets[key], row.member, row.asset.name), printed)
-                self.assertEqual(len(printed), row.member.size)
+        data = (self.store / row.asset.name).read_bytes()
+        printed = subprocess.run([tar, "-xOzf", row.asset.name, row.member.name], cwd=self.store,
+                                 capture_output=True, check=True).stdout
+        self.assertEqual(install_tool.archive_member(data, row.member, row.asset.name), printed)
+        self.assertEqual(len(printed), row.member.size)
+        files = {self.pin.checksums.name: (self.store / self.pin.checksums.name).read_bytes(), row.asset.name: data}
+        run = install_tool.run_command if key == install_tool.host_platform() else reports_pinned_version
+        installed = self.assert_installs(Case(PLUGIN, files, tool=self.pin.tool), host=key, run=run)
+        self.assertEqual(installed.read_bytes(), printed)
 
-    def test_each_real_archive_installs(self):
-        host = install_tool.host_platform()
-        for key, row in self.pin.rows.items():
-            with self.subTest(platform=key):
-                case = Case(PLUGIN, {PLUGIN["checksums"]: self.checksums, row.asset.name: self.assets[key]},
-                            tool="protoc-gen-connect-openapi")
-                run = install_tool.run_command if key == host else reports_pinned_version
-                installed = self.assert_installs(case, host=key, run=run)
-                self.assertEqual(installed.stat().st_size, row.member.size)
+
+for row_key in PLUGIN["assets"]:
+    setattr(InstallerRealArchiveTest, f"test_{row_key.replace('-', '_')}", real_archive_case(row_key))
 
 
 class ProxyNameTest(Folder):
@@ -561,7 +597,7 @@ class ProxyNameTest(Folder):
                 self.assert_installs(seeded_case(binary=binary))
 
 
-class NoBuildFetchTest(unittest.TestCase):
+class NoBuildFetchTest(Offline):
     def test_the_tracked_tree_passes(self):
         listed = subprocess.run(["git", "ls-files", "-z"], cwd=ROOT, capture_output=True, check=True).stdout
         paths = [path for path in listed.decode("utf-8").split("\0") if path]
@@ -580,37 +616,46 @@ class NoBuildFetchTest(unittest.TestCase):
                     self.assertTrue(all(problem.startswith(f"{seed['path']}: ") for problem in problems))
 
 
-class ReleaseCheckTest(unittest.TestCase):
-    def listing(self, table, change=lambda assets: assets):
-        assets = [{"name": table["checksums"], "size": table["checksums_size"],
-                   "digest": f"sha256:{table['checksums_sha256']}"}]
-        assets += [{"name": row["file"], "size": row["size"], "digest": f"sha256:{row['sha256']}"}
-                   for row in table["assets"].values()]
-        if "signature" in table:
-            assets.append({"name": table["signature"], "size": table["signature_size"], "digest": "sha256:" + "0" * 64})
-        stdout = json.dumps({"assets": change(assets)}).encode("utf-8")
-        return lambda command, timeout: subprocess.CompletedProcess(command, 0, stdout, b"")
+class CheckReleaseTest(Offline):
+    def check(self, tool, run):
+        return install_tool.check_release(install_tool.validate(tool, REAL["tool"][tool], INSTALL), run)
 
-    def test_the_real_pins_match_a_listing_built_from_them(self):
-        for name in ("buf", "protoc-gen-connect-openapi"):
-            with self.subTest(tool=name):
-                pin = install_tool.validate(name, REAL["tool"][name], INSTALL)
-                self.assertIn("release matches", install_tool.check_release(pin, self.listing(REAL["tool"][name])))
+    def test_the_matching_listing_passes(self):
+        for tool in ("buf", "protoc-gen-connect-openapi"):
+            with self.subTest(tool=tool):
+                line = self.check(tool, gh_printing(release_listing(REAL["tool"][tool])))
+                self.assertEqual(line, f"release matches {tool} {REAL['tool'][tool]['version']}")
 
-    def test_a_differing_or_missing_asset_is_refused(self):
-        pin = install_tool.validate("buf", BUF, INSTALL)
-        changes = {
-            "other digest": lambda assets: [dict(assets[0], digest="sha256:" + "1" * 64), *assets[1:]],
-            "other size": lambda assets: [dict(assets[0], size=1), *assets[1:]],
-            "missing asset": lambda assets: assets[1:],
+    def test_a_seeded_listing_is_refused_naming_the_file(self):
+        asset, checksums, signature = BUF["assets"][HOST]["file"], BUF["checksums"], BUF["signature"]
+        other_digest = "sha256:" + "1" * 64
+        cases = {
+            "pinned asset missing": (asset, lambda listed: [entry for entry in listed if entry["name"] != asset]),
+            "pinned asset duplicated": (asset, lambda listed: listed + [entry for entry in listed if entry["name"] == asset]),
+            "asset with another size": (asset, changed_entry(asset, "size", lambda size: size + 1)),
+            "asset with another digest": (asset, changed_entry(asset, "digest", lambda digest: other_digest)),
+            "checksum file with another digest": (checksums, changed_entry(checksums, "digest", lambda digest: other_digest)),
+            "signature with another size": (signature, changed_entry(signature, "size", lambda size: size + 1)),
         }
-        for name, change in changes.items():
+        for name, (file, change) in cases.items():
             with self.subTest(case=name), self.assertRaises(install_tool.Refusal) as refused:
-                install_tool.check_release(pin, self.listing(BUF, change))
-            self.assertEqual(refused.exception.code, "GRDR-SUPPLY-0007")
-        with self.assertRaises(install_tool.Refusal) as refused:
-            install_tool.check_release(pin, lambda command, timeout: subprocess.CompletedProcess(command, 1, b"", b""))
-        self.assertEqual(refused.exception.code, "GRDR-SUPPLY-0006")
+                self.check("buf", gh_printing(change(release_listing(BUF))))
+            self.assertEqual((refused.exception.code, refused.exception.file), ("GRDR-SUPPLY-0007", file))
+            self.assertIn(file, refused.exception.reason)
+
+    def test_a_failing_gh_is_refused(self):
+        def missing(command, timeout):
+            raise FileNotFoundError(command[0])
+        cases = {
+            "gh missing": missing,
+            "gh exiting 1": lambda command, timeout: subprocess.CompletedProcess(command, 1, b"", b""),
+            "output that is not JSON": lambda command, timeout: subprocess.CompletedProcess(command, 0, b"assets", b""),
+            "JSON without assets": lambda command, timeout: subprocess.CompletedProcess(command, 0, b'{"tagName": "v1"}', b""),
+        }
+        for name, run in cases.items():
+            with self.subTest(case=name), self.assertRaises(install_tool.Refusal) as refused:
+                self.check("buf", run)
+            self.assertEqual(refused.exception.code, "GRDR-SUPPLY-0006")
 
 
 if __name__ == "__main__":

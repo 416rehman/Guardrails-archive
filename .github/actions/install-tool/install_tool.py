@@ -412,9 +412,23 @@ def release_assets(pin, run):
         result = run(command, pin.timeout)
         if result.returncode != 0:
             raise ValueError(result.returncode)
-        return {asset["name"]: (asset["size"], asset["digest"]) for asset in json.loads(result.stdout)["assets"]}
+        listing = json.loads(result.stdout)
+        if not isinstance(listing, dict) or not isinstance(listing.get("assets"), list):
+            raise ValueError("no assets list")
+        return [(asset["name"], asset["size"], asset.get("digest")) for asset in listing["assets"]]
     except (OSError, subprocess.SubprocessError, ValueError, KeyError, TypeError):
         raise Refusal(FETCH, "gh release view gave no asset list") from None
+
+
+def listing_problem(listed, name, pinned_size, digest):
+    found = [(size, listed_digest) for listed_name, size, listed_digest in listed if listed_name == name]
+    if len(found) != 1:
+        return f"GitHub lists {name} {len(found)} times"
+    if found[0][0] != pinned_size:
+        return f"GitHub lists {name} with another size"
+    if digest is not None and found[0][1] != digest:
+        return f"GitHub lists {name} with another digest"
+    return None
 
 
 def check_release(pin, run):
@@ -423,13 +437,11 @@ def check_release(pin, run):
     expected |= {row.asset.name: (row.asset.size, f"sha256:{row.sha256}") for row in pin.rows.values()}
     if pin.minisign is not None:
         expected[pin.minisign.signature.name] = (pin.minisign.signature.size, None)
-    differ = sorted(
-        name for name, (pinned_size, digest) in expected.items()
-        if name not in listed or listed[name][0] != pinned_size or digest not in (None, listed[name][1])
-    )
-    if differ:
-        raise Refusal(DIGEST_MISMATCH, f"GitHub's asset list differs for {', '.join(differ)}")
-    return f"release matches {pin.tool} {pin.version}: {len(expected)} files"
+    for name, (pinned_size, digest) in expected.items():
+        problem = listing_problem(listed, name, pinned_size, digest)
+        if problem is not None:
+            raise Refusal(DIGEST_MISMATCH, problem, name)
+    return f"release matches {pin.tool} {pin.version}"
 
 
 def install_tool(tool, dest, runtime):
