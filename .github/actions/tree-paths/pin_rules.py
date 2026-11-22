@@ -1,15 +1,21 @@
 """The rules the workflow test runs over the workflows, the local actions and the pin action.
 
 Each rule is a text match, over the keys and values workflow_reader.py gives it or over the raw
-text. A job that has an actions/checkout step must call the pin action in the step after its first
-checkout, and write the channel to GITHUB_ENV as RUSTUP_TOOLCHAIN in the step after that. Steps,
-jobs, local actions and a job's first checkout may hold only the keys and inputs listed here. The
-other matches each refuse one spelling, in any letter case: a line other than the pin's own that
-holds rustup, github_env, github_path, ::set-env or ::add-path; a RUSTUP_PROXY name, with or
-without a path, a quote or .exe, followed by quotes, backslashes or whitespace and a +; a
-REFUSED_VARIABLES name as an env key, or followed by optional whitespace and = with no letter,
-digit, underscore or hyphen before it; and a step's if: whose text holds the word always, failure
-or cancelled followed by (, or ! followed by success(, with optional whitespace between the parts.
+text. Each refuses only where its pattern matches, or where a value differs from its set or its
+expected value, and only where the code below applies it. The rules are:
+- checkout_problems, with PIN_ID, PIN_ACTION, PIN_KEYS, PIN_INPUTS, WRITE_KEYS, WRITE_STEP and
+  WRITE_ENV, for the two steps after the first checkout of a job that has an actions/checkout step,
+  and CHECKOUT_INPUTS for that checkout's inputs;
+- the key sets STEP_KEYS, JOB_KEYS, ACTION_KEYS and COMPOSITE_KEYS, and using: composite for a
+  local action; ACTIONS for the action a step uses; LOCAL_WORKFLOW for the workflow a job calls;
+  and STEP_PIN for the env of a job's step whose action ACTIONS marks RUNS_CARGO_IN_A_CONTAINER;
+- the patterns RUSTUP and ENV_FILE_WRITE per line, outside allowed_lines and the ENV_WRITES entries;
+- the patterns PLUS_TOOLCHAIN and VARIABLE_ASSIGNMENT over the raw text, and refused_env_keys over
+  the keys of env mappings;
+- the pattern STATUS_FUNCTION over a step's if:, in a job that has an actions/checkout step outside
+  what STATUS_CONDITIONS allows, and in a local action;
+- pin_action_problems, with CHANNEL_OUTPUT, its expected step keys, READ_STEP, a count of
+  GITHUB_OUTPUT and ENV_FILE_WRITE, for the pin action.
 
 The fixture tables in test_pinned_toolchain.py are the list of forms the test claims to refuse. It
 claims nothing about a form no fixture exercises, even one of the same kind as a fixture's. Every
@@ -48,15 +54,16 @@ READ_STEP = """    - id: read
 """
 LOCAL_WORKFLOW = re.compile(r"[.$]/\.github/workflows/[A-Za-z0-9_.-]+\.ya?ml")
 
-# The keys a step, a job or a local action may hold: those today's workflows use. A key GitHub adds
-# later (parallel, background, wait and the like) is refused until it is read here.
+# The key and input sets the functions below compare against: the keys today's workflows use. A key
+# outside a set, such as one GitHub adds later, is refused where the function that reads it runs.
 STEP_KEYS = {"name", "id", "uses", "with", "run", "shell", "env", "if", "working-directory", "timeout-minutes",
              "continue-on-error"}
 PIN_KEYS = {"id", "uses", "with"}
 PIN_INPUTS = {"install"}
 WRITE_KEYS = {"name", "shell", "env", "run"}
 CHECKOUT_INPUTS = {"persist-credentials", "fetch-depth", "sparse-checkout", "sparse-checkout-cone-mode"}
-# uses, with and secrets are the keys of a call to a reusable workflow in this repository.
+# uses, with and secrets are the keys of a call to a reusable workflow; job_problems refuses a uses
+# that LOCAL_WORKFLOW does not match.
 JOB_KEYS = {"name", "needs", "if", "runs-on", "timeout-minutes", "permissions", "outputs", "strategy", "defaults",
             "steps", "uses", "with", "secrets"}
 ACTION_KEYS = {"name", "description", "inputs", "outputs", "runs"}
@@ -64,8 +71,8 @@ COMPOSITE_KEYS = {"using", "steps"}
 
 CHECKS_OUT = "checks out the repository"
 RUNS_CARGO_IN_A_CONTAINER = "runs cargo in its own container, which takes the pin as step env"
-# What each action the workflows and local actions use does that the pin cares about. An action
-# missing here fails the test, so a new one is classified before it lands.
+# What each action the workflows and local actions use does that the pin cares about. step_problems
+# refuses a step whose action is not listed here.
 ACTIONS = {
     "$/.github/actions/pins": None,
     "EmbarkStudios/cargo-deny-action": RUNS_CARGO_IN_A_CONTAINER,
@@ -88,9 +95,8 @@ ACTIONS = {
 
 CARGO_READS = "cargo book, Environment variables, Environment variables Cargo reads"
 CARGO_CONFIG = "cargo book, Environment variables, Configuration environment variables"
-# Variable names refused as an env key or as NAME=, each with the page that lists it: they choose
-# the compiler, or run code before the write step. RUSTUP_ names are not listed: a line outside the
-# pin that holds one is refused by the RUSTUP text match.
+# The names refused_env_keys and VARIABLE_ASSIGNMENT match, each with the page that lists it: they
+# choose the compiler, or run code before the write step. RUSTUP_ names are left to RUSTUP.
 REFUSED_VARIABLES = {
     "RUSTC": CARGO_READS,
     "RUSTC_WRAPPER": CARGO_READS,
@@ -106,17 +112,16 @@ REFUSED_VARIABLES = {
     "BASH_ENV": "bash manual, Bash Startup Files: sourced by every non-interactive bash, the write step's included",
     "ACTIONS_ALLOW_UNSECURE_COMMANDS": "GitHub Actions docs, Workflow commands: turns set-env and add-path back on",
 }
-# Lines outside the pin that may write GITHUB_ENV or GITHUB_PATH, as (file name, line) to a reason.
+# Lines text_problems skips for RUSTUP and ENV_FILE_WRITE, as (file name, stripped line) to a reason.
 ENV_WRITES = {}
-# Steps of a job with an actions/checkout step whose if: may run after a failure, as (workflow, job,
-# action) to a reason.
+# Steps whose if: status_problems lets STATUS_FUNCTION match, as (workflow, job, action) to a reason;
+# a listed step that has a run key is not let through.
 STATUS_CONDITIONS = {
     ("dast.yml", "baseline", "actions/upload-artifact"): "uploads the scan reports and the server log after a failed scan; runs no cargo",
 }
 
 RUSTUP = re.compile(r"rustup", re.I)
-# Matches a rustup proxy's basename, with or without a path, quotes or .exe, then quotes, backslashes
-# or whitespace and a +, as in a plain, folded or continued line. It matches only that spelling.
+# The proxy names PLUS_TOOLCHAIN reads; it refuses only what its own pattern matches.
 RUSTUP_PROXY = r"(?:cargo(?:-[a-z0-9_-]+)?|rustc|rustdoc|rustfmt|rust-[a-z0-9_-]+|clippy-driver|miri|rls)"
 PLUS_TOOLCHAIN = re.compile(rf"(?<![\w-]){RUSTUP_PROXY}(?:\.exe)?[\"']?[\s\\\"']+\+", re.I)
 VARIABLE_ASSIGNMENT = re.compile(rf"(?<![\w-])(?:{'|'.join(REFUSED_VARIABLES)})\s*=", re.I)
@@ -209,7 +214,8 @@ def job_problems(name, job_id, job, steps, allowed_lines):
 
 
 def text_problems(text, allowed_lines, name):
-    """The raw text matches over a workflow or a local action, outside the allowed lines."""
+    """PLUS_TOOLCHAIN and VARIABLE_ASSIGNMENT over the text; RUSTUP and ENV_FILE_WRITE per line, outside
+    allowed_lines and the ENV_WRITES entries."""
     problems = [f"{name}: gives a rustup proxy a +toolchain argument: {found[0]!r}" for found in PLUS_TOOLCHAIN.finditer(text)]
     problems += [f"{name}: sets {found[0]!r}" for found in VARIABLE_ASSIGNMENT.finditer(text)]
     for number, line in enumerate(text.split("\n"), 1):
@@ -253,7 +259,7 @@ def action_problems(text, name="fixture/action.yml"):
 
 
 def pin_action_problems(text):
-    """Where the pin action's outputs, steps, read step or writes differ from what the checks expect."""
+    """What the checks below find in the pin action; empty when none of them matches."""
     try:
         action = as_mapping(parse(text), "the pin action")
         outputs = as_mapping(action["outputs"], "outputs")

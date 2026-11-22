@@ -7,11 +7,12 @@ components, targets, profile or path), git's own objects for each fixture commit
 rust-toolchain.toml, cargo's and rustup's lists of the variables they read, and the real workflows
 and local actions.
 
-The workflow test is a tripwire for drift and mistakes in workflow edits. Its rules are text
-matches. The fixture tables in this file, and the changed copies of the pin action that the pin
-action test builds, are the list of forms it claims to refuse; it claims nothing about a form no
-fixture exercises, even one of the same kind as a fixture's. Every file it reads is under .github/**, which
-is trust core, and review of an edit there by the trust-core evaluator set is the control for every
+The workflow test, WorkflowTest, is a tripwire for drift and mistakes in workflow edits. Its rules
+are the text matches workflow_reader.py and pin_rules.py name. The fixture tables in this file, and
+the changed copies of the pin action in test_the_pin_action_outputs_only_the_readers_channel, are
+the list of forms it claims to refuse; it claims nothing about a form no fixture exercises, even
+one of the same kind as a fixture's. Every file WorkflowTest reads is under .github/**, which is
+trust core, and review of an edit there by the trust-core evaluator set is the control for every
 other form (design/02 TB-11, D-63).
 """
 
@@ -88,7 +89,7 @@ JOB_KEY_LINES = {
     "underscore-and-capitals": ("  Build_Docs_2:", "Build_Docs_2"),
     "quoted-underscore-capitals-comment": ('  "Build_Docs_2" : # docs', "Build_Docs_2"),
 }
-# Jobs with an actions/checkout step that do not keep the pin, whatever their steps run.
+# Jobs with an actions/checkout step that checkout_problems refuses, whatever their other steps run.
 UNPINNED = {
     "plain-cargo": CHECKOUT + CARGO,
     "no-cargo-at-all": CHECKOUT + "      - run: make docs\n",
@@ -105,7 +106,7 @@ UNPINNED = {
     "checkout-of-another-ref": CHECKOUT + "          ref: other\n" + PIN + WRITE + CARGO,
     "checkout-into-a-path": CHECKOUT + "          path: other\n" + PIN + WRITE + CARGO,
 }
-# Jobs that keep the pin's steps, but something else in the workflow picks the toolchain.
+# Jobs built on the pin's steps that hold a form a rule in pin_rules.py refuses.
 DEFEATED = {
     "plus-toolchain": PINNED + "      - run: cargo +stable test\n",
     "plus-toolchain-quoted": PINNED + "      - run: cargo '+stable' test\n",
@@ -177,8 +178,8 @@ DEFEATED_BY_ENV = {
     "workflow-rustc-wrapper": ("env:\n  RUSTC_WRAPPER: ./tool\n", ""),
     "workflow-bash-env": ("env:\n  BASH_ENV: ./setup.sh\n", ""),
 }
-# Keys outside the allowlists: step forms GitHub may run in another order or environment, and jobs
-# that hold keys the reader does not read.
+# Keys outside STEP_KEYS and JOB_KEYS: step forms GitHub may run in another order or environment,
+# and job keys the rules do not read.
 UNLISTED_KEYS = {
     "parallel-group-holding-the-checkout": "      - parallel:\n          - uses: actions/checkout@0\n" + CARGO,
     "background-step-before-the-checkout": "      - id: early\n        background: true\n        run: sleep 60; cargo build\n"
@@ -194,7 +195,8 @@ UNLISTED_JOB_KEYS = {
     "job-container": "    container: rust:1.80\n",
     "job-continue-on-error": "    continue-on-error: true\n",
 }
-# Workflows the reader does not read, each holding a job with an actions/checkout step and no pin.
+# Workflows the reader raises Unreadable on, and one whose job calls a workflow LOCAL_WORKFLOW does
+# not match.
 UNREADABLE = {
     **{
         f"line-break-{name}": f"    steps: # c{char}    a: |\n      - {{uses: actions/checkout@0}}\n"
@@ -230,12 +232,12 @@ NEEDS_ONE_REFUSAL = {
     + "      - uses: EmbarkStudios/cargo-deny-action@0\n        env:\n          RUSTUP_TOOLCHAIN: stable\n",
     "status-through-an-alias": PINNED + "      - name: &after always()\n        run: echo\n      - if: *after\n        run: cargo test\n",
 }
-# The step STATUS_CONDITIONS allows in dast.yml's baseline job, and the same step running a command.
+# The step STATUS_CONDITIONS lists for dast.yml's baseline job, with no run key.
 LISTED_STATUS_STEP = "      - if: always()\n        uses: actions/upload-artifact@0\n"
 
 COMPOSITE = "name: fixture\ndescription: fixture\nruns:\n  using: composite\n  steps:\n"
 ECHO = "    - shell: bash\n      run: echo done\n"
-# Local actions that a pinned job could call, each of which works past the pin.
+# Local action steps that a rule in action_problems refuses.
 ACTION_DEFEATS = {
     "env-file-write": "    - shell: bash\n      run: echo \"RUSTUP_TOOLCHAIN=stable\" >> \"$GITHUB_ENV\"\n",
     "plus-toolchain": "    - shell: bash\n      run: cargo +stable build\n",

@@ -1,10 +1,10 @@
 """A reader for the part of YAML the workflows and local actions are written in.
 
-It reads block mappings and sequences, plain, quoted and block scalars, and comments. It raises
-Unreadable on the forms the fixtures exercise that it does not read: flow collections other than
-[words] and {}, anchors, aliases, tags, explicit keys, escapes, a character outside printable ASCII.
-It splits lines on line feeds only. It is not a YAML parser: a block scalar's value reaches the
-rules as BLOCK_SCALAR, not as its text, and each rule built on what it returns is a text match.
+It reads the text through the patterns PRINTABLE, KEY_LINE, BLOCK_INDICATOR, SINGLE_QUOTED,
+DOUBLE_QUOTED, FLOW_OF_WORDS and PLAIN_START, and raises Unreadable only where the code below does.
+It splits lines on line feeds only. It is not a YAML parser: scalar() gives BLOCK_SCALAR for a
+value BLOCK_INDICATOR matches, not the block's text, and each rule built on what the reader returns
+is a text match.
 
 The fixture tables in test_pinned_toolchain.py are the list of forms the test claims to refuse.
 Every file it reads is under .github/**, which is trust core, and review of an edit there by the
@@ -40,7 +40,7 @@ class Line:
 
 @dataclasses.dataclass
 class Value:
-    """A YAML node and the line it starts on: a scalar's text, a mapping or a sequence."""
+    """A node and the line it starts on: a scalar's value as the reader gives it, a mapping or a sequence."""
     number: int
     data: str | dict | list
 
@@ -52,8 +52,8 @@ class Unreadable(Exception):
 def lines_of(text):
     """The structure lines of the text, each "- " split into an item start and the line after it.
 
-    Blank lines, comments and the text of block scalars are left out. A block scalar's text is
-    every following line that is blank or deeper than the key that opens it.
+    Left out: blank lines, comments, and the lines after a key whose value BLOCK_INDICATOR matches
+    that are blank or deeper than that key.
     """
     text_deeper_than = None
     for number, line in enumerate(text.split("\n"), 1):
@@ -76,7 +76,7 @@ def lines_of(text):
 
 
 def scalar(text, number):
-    """The reader's value for a scalar written on one line; BLOCK_SCALAR for a block indicator."""
+    """The reader's value for a scalar written on one line; BLOCK_SCALAR where BLOCK_INDICATOR matches."""
     if BLOCK_INDICATOR.fullmatch(text):
         return BLOCK_SCALAR
     single = SINGLE_QUOTED.fullmatch(text)
