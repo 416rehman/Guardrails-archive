@@ -2,8 +2,9 @@
 python -I -m unittest discover -s .github/actions/tree-paths -p "test_pinned_toolchain.py" -v
 
 The oracles are rustup's documented toolchain file format (a [toolchain] table with channel,
-components, targets, profile or path), the real rust-toolchain.toml, and the workflows, where every
-job that runs rustup or cargo must write RUSTUP_TOOLCHAIN to GITHUB_ENV before its first such line.
+components, targets, profile or path), the real rust-toolchain.toml, and the workflows: every job
+that runs rustup or cargo, on a run line or through an action declared below, calls the pin action
+before its first such step, and that action is the only place the pin is read or installed.
 """
 
 import pathlib
@@ -16,10 +17,52 @@ import unittest
 HERE = pathlib.Path(__file__).resolve().parent
 ROOT = HERE.parents[2]
 READER = HERE / "pinned_toolchain.py"
+PIN_ACTION_FILE = HERE / "action.yml"
 WORKFLOWS = sorted((ROOT / ".github" / "workflows").glob("*.yml"))
 JOB_HEADER = re.compile(r"^  (?=[a-z][a-z0-9-]*:\s*$)", re.M)
+STEP_HEADER = re.compile(r"^      - ", re.M)
+USES = re.compile(r"^\s*(?:- )?uses: ([^@\s]+)", re.M)
 RUST_LINE = re.compile(r"(?:^|[\s;&|(])(?:rustup|cargo) ")
-PIN_LINE = re.compile(r"pinned_toolchain\.py|RUSTUP_TOOLCHAIN=")
+PIN_ACTION = "$/.github/actions/tree-paths"
+STEP_PIN = "RUSTUP_TOOLCHAIN: ${{ env.RUSTUP_TOOLCHAIN }}"
+
+# Every action the workflows use, and whether it runs rustup or cargo. An action missing here fails
+# the test, so a new one is classified before it lands.
+ACTIONS = {
+    "$/.github/actions/pins": False,
+    "EmbarkStudios/cargo-deny-action": True,
+    "Swatinem/rust-cache": True,
+    "actions/attest-build-provenance": False,
+    "actions/checkout": False,
+    "actions/upload-artifact": False,
+    "github/codeql-action/analyze": True,
+    "github/codeql-action/init": True,
+    "github/codeql-action/upload-sarif": False,
+    "google/clusterfuzzlite/actions/build_fuzzers": True,
+    "google/clusterfuzzlite/actions/run_fuzzers": True,
+    "google/osv-scanner-action/osv-scanner-action": False,
+    "googleapis/release-please-action": False,
+    "ossf/scorecard-action": False,
+    "sigstore/cosign-installer": False,
+    "step-security/harden-runner": False,
+    "zizmorcore/zizmor-action": False,
+}
+# The actions above that run cargo in their own container, which takes the pin as step env.
+CONTAINER_ACTIONS = {
+    "EmbarkStudios/cargo-deny-action",
+    "google/clusterfuzzlite/actions/build_fuzzers",
+    "google/clusterfuzzlite/actions/run_fuzzers",
+}
+# The jobs that run rustup or cargo. A job found doing so that is not listed fails, and so does a
+# listed job that no longer does.
+RUST_JOBS = {
+    ("codeql.yml", "analyze"),
+    ("dast.yml", "baseline"),
+    ("fuzz.yml", "fuzz"),
+    ("release-please.yml", "artefacts"),
+    ("verify.yml", "deny"),
+    ("verify.yml", "rust"),
+}
 
 FULL = """[toolchain]
 channel = "1.99.1"
@@ -99,26 +142,61 @@ class ReaderTest(unittest.TestCase):
         self.assertIn("GRDR-GATE-0003", result.stderr)
 
 
+def jobs():
+    """Each job as (workflow file name, job id, its steps' text in order)."""
+    for workflow in WORKFLOWS:
+        body = workflow.read_text(encoding="utf-8").partition("\njobs:\n")[2]
+        for job in JOB_HEADER.split(body)[1:]:
+            steps = STEP_HEADER.split(job.partition("\n    steps:\n")[2])[1:]
+            yield workflow.name, job.partition(":")[0], steps
+
+
+def step_action(step):
+    found = USES.search(step)
+    return found.group(1) if found else None
+
+
+def runs_rust(step):
+    action = step_action(step)
+    if action is not None:
+        return action != PIN_ACTION and ACTIONS[action]
+    return any(RUST_LINE.search(line) for line in run_lines(step))
+
+
 class WorkflowTest(unittest.TestCase):
-    def test_every_rust_job_pins_before_its_first_rustup_or_cargo_line(self):
-        checked = 0
-        for workflow in WORKFLOWS:
-            jobs = workflow.read_text(encoding="utf-8").partition("\njobs:\n")[2]
-            for job in JOB_HEADER.split(jobs)[1:]:
-                lines = list(run_lines(job))
-                rust = [at for at, line in enumerate(lines) if RUST_LINE.search(line)]
-                if not rust:
-                    continue
-                checked += 1
-                name = f"{workflow.name} {job.partition(':')[0]}"
-                pins = [at for at, line in enumerate(lines) if PIN_LINE.search(line)]
-                self.assertTrue(pins and pins[0] < rust[0], name)
-                pin_step = "\n".join(lines[pins[0]:pins[0] + 8])
-                self.assertIn('>> "$GITHUB_ENV"', pin_step, name)
-                for line in lines:
-                    if "rustup toolchain install" in line:
-                        self.assertIn('rustup toolchain install "$RUSTUP_TOOLCHAIN"', line, name)
-        self.assertGreaterEqual(checked, 3)
+    def test_every_action_is_classified(self):
+        used = {step_action(step) for _, _, steps in jobs() for step in steps} - {None, PIN_ACTION}
+        self.assertEqual(used - ACTIONS.keys(), set())
+
+    def test_the_jobs_that_run_rust_are_the_declared_ones(self):
+        found = {
+            (workflow, job) for workflow, job, steps in jobs()
+            if any(runs_rust(step) or step_action(step) == PIN_ACTION for step in steps)
+        }
+        self.assertEqual(found, RUST_JOBS)
+
+    def test_every_rust_job_pins_before_its_first_rust_step(self):
+        for workflow, job, steps in jobs():
+            if (workflow, job) not in RUST_JOBS:
+                continue
+            with self.subTest(job=f"{workflow} {job}"):
+                rust = [at for at, step in enumerate(steps) if runs_rust(step)]
+                pins = [at for at, step in enumerate(steps) if step_action(step) == PIN_ACTION]
+                self.assertTrue(pins, steps)
+                self.assertTrue(all(pins[0] < at for at in rust), steps)
+                for step in steps:
+                    if step_action(step) in CONTAINER_ACTIONS:
+                        self.assertIn(STEP_PIN, step)
+
+    def test_only_the_pin_action_reads_or_installs_the_toolchain(self):
+        for workflow, job, steps in jobs():
+            for step in steps:
+                self.assertNotIn("pinned_toolchain.py", step, f"{workflow} {job}")
+                self.assertNotIn("rustup toolchain install", step, f"{workflow} {job}")
+                self.assertNotIn("RUSTUP_TOOLCHAIN=", step, f"{workflow} {job}")
+        action = PIN_ACTION_FILE.read_text(encoding="utf-8")
+        self.assertIn('pinned_toolchain.py" rust-toolchain.toml >> "$GITHUB_ENV"', action)
+        self.assertIn('rustup toolchain install "$RUSTUP_TOOLCHAIN"', action)
 
 
 if __name__ == "__main__":

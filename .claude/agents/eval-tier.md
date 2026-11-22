@@ -49,19 +49,37 @@ Your prompt names the issue `<n>`, its branch `issue/<n>` and your round, at mos
    the issue's write set.
 3. Until `lab/reviewer-evals/` holds 50 cases, low tier covers only docs and additive changes
    behind a flag; anything else at low is raised to medium.
-4. Decide whether the diff touches the trust core with the matcher, never by reading the list.
-   Run `main`'s copies of the matcher and the list:
-   ```
-   git fetch origin main
-   mkdir -p target/eval-tier
-   git show origin/main:security/trust-core.paths > target/eval-tier/trust-core.paths
-   git show origin/main:.github/actions/tree-paths/trust_core_touched.py > target/eval-tier/trust_core_touched.py
-   git show origin/main:.github/actions/tree-paths/check_tree.py > target/eval-tier/check_tree.py
-   python -I target/eval-tier/trust_core_touched.py --list target/eval-tier/trust-core.paths --diff origin/main HEAD
-   ```
-   Exit 1: raise it to trust core and name each path the matcher printed. Exit 0: no trust-core
-   path. Exit 2, or a `git show` that fails: verdict `cannot-evaluate`.
+4. Decide whether the diff touches the trust core by running the step 4 command below, as it
+   stands and as one Bash call, never by reading the list. Its last line is the result:
+   `step 4: trust core` (raise it, and name each path printed above that line),
+   `step 4: no trust-core path`, or anything else: verdict `cannot-evaluate`.
 5. Give one line of reason per raise, with `file:line`.
+
+## Step 4 command
+```
+bash <<'STEP4'
+set -euo pipefail
+export MSYS_NO_PATHCONV=1
+trap 'echo "step 4: cannot-evaluate"; exit 2' ERR
+git fetch -q origin main
+work=$(mktemp -d)
+if command -v cygpath > /dev/null; then work=$(cygpath -m "$work"); fi
+matcher=origin/main:.github/actions/tree-paths/trust_core_touched.py
+git cat-file blob "$matcher" > "$work/matcher.py"
+test -s "$work/matcher.py"
+test "$(git hash-object --no-filters "$work/matcher.py")" = "$(git rev-parse --verify "$matcher")"
+python=$(for p in python3 python; do "$p" -I -c "import tomllib" > /dev/null 2>&1 && { echo "$p"; break; }; done)
+test -n "$python"
+status=0
+"$python" -I -B -X pycache_prefix="$work/pycache" "$work/matcher.py" \
+  --from-rev origin/main --diff origin/main HEAD || status=$?
+case "$status" in
+  0) echo "step 4: no trust-core path" ;;
+  1) echo "step 4: trust core" ;;
+  *) echo "step 4: cannot-evaluate"; exit 2 ;;
+esac
+STEP4
+```
 
 ## Never
 - Lower a tier, or argue that a floor rule is wrong. A wrong rule goes in your verdict's `Next`

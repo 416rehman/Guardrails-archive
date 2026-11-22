@@ -90,13 +90,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Write RUSTUP_TOOLCHAIN to GITHUB_ENV from rust-toolchain.toml
-        run: python3 -I .github/actions/tree-paths/pinned_toolchain.py rust-toolchain.toml >> "$GITHUB_ENV"
-      - run: >-
-          rustup toolchain install "$RUSTUP_TOOLCHAIN"
-          ${TOOLCHAIN_PROFILE:+--profile "$TOOLCHAIN_PROFILE"}
-          ${TOOLCHAIN_COMPONENTS:+--component "$TOOLCHAIN_COMPONENTS"}
-          ${TOOLCHAIN_TARGETS:+--target "$TOOLCHAIN_TARGETS"}
+      - uses: $/.github/actions/tree-paths
       - id: pins
         uses: $/.github/actions/pins
         with:

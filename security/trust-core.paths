@@ -5,7 +5,8 @@
 # passing evaluators on different models (owner instruction 7). Read through
 # .claude/risk-tiers.toml by the grdr-work-issue skill and eval-tier.
 # Each line is a git :(glob,icase) pathspec from the root, so ASCII case does not matter; `**/`
-# matches zero or more folders. .github/actions/tree-paths/trust_core_touched.py does the matching.
+# matches zero or more folders, and a folder line `x/**` also matches `x` itself.
+# .github/actions/tree-paths/trust_core_touched.py does the matching.
 # Module globs fix where that code lives inside its crate; moving the code means a change here.
 
 # eBPF programs
@@ -86,6 +87,7 @@ Cargo.lock
 **/rustfmt.toml
 **/.rustfmt.toml
 **/.gitattributes
+**/.gitmodules
 architecture.toml
 surfaces.toml
 support.toml

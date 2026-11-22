@@ -2,12 +2,14 @@
 python -I -m unittest discover -s .github/actions/tree-paths -p "test_trust_core_touched.py" -v
 
 The oracle is a reference matcher written here with no call to git: the :(glob,icase) rules over
-ASCII-lower-cased paths, where a `**/` segment matches zero or more folders. A differential run
-compares it with git's pathspec matching, pattern by pattern, over every path of origin/main's and
-the head's trees with random ASCII case changes, an instance of every list line, and the seeded
-trees of tree_fixtures.py.
+ASCII-lower-cased paths, where a `**/` segment matches zero or more folders and a folder line
+`x/**` also matches `x`. A differential run compares it with git's pathspec matching, pattern by
+pattern, over every path of origin/main's and the head's trees with random ASCII case changes, an
+instance of every list line, and the seeded trees of tree_fixtures.py. Both corpus revisions must
+be listable.
 """
 
+import os
 import pathlib
 import random
 import re
@@ -19,11 +21,12 @@ import unittest
 
 import check_tree
 import trust_core_touched
-from tree_fixtures import CLEAN, SEEDED, FixtureRepo
+from tree_fixtures import CLEAN, SEEDED, SUBMODULE, FixtureRepo, path_of
 
 HERE = pathlib.Path(__file__).resolve().parent
 ROOT = HERE.parents[2]
 MATCHER = HERE / "trust_core_touched.py"
+CHECK_TREE = HERE / "check_tree.py"
 TRUST_CORE = ROOT / "security" / "trust-core.paths"
 RISK_TIERS = ROOT / ".claude" / "risk-tiers.toml"
 CORPUS_REVS = ["origin/main", "HEAD"]
@@ -70,12 +73,19 @@ def reference_regex(pattern):
     return re.compile(b"".join(parts), re.DOTALL)
 
 
-def reference_matches(pattern, path):
-    folded_pattern = pattern.encode("ascii").translate(ASCII_FOLD)
-    folded_path = path.translate(ASCII_FOLD)
+def reference_glob(folded_pattern, folded_path):
     if not any(byte in WILDCARDS for byte in folded_pattern):
         return folded_path == folded_pattern or folded_path.startswith(folded_pattern + b"/")
     return reference_regex(folded_pattern).fullmatch(folded_path) is not None
+
+
+def reference_matches(pattern, path):
+    """R1, and a folder line `x/**` matching the path `x` as well."""
+    folded_pattern = pattern.encode("ascii").translate(ASCII_FOLD)
+    folded_path = path.translate(ASCII_FOLD)
+    if folded_pattern.endswith(b"/**") and reference_glob(folded_pattern[:-3], folded_path):
+        return True
+    return reference_glob(folded_pattern, folded_path)
 
 
 def tree_paths(rev):
@@ -83,13 +93,15 @@ def tree_paths(rev):
         ["git", "ls-tree", "-r", "-z", "--name-only", "--full-tree", rev],
         cwd=ROOT, capture_output=True, check=False,
     )
-    return [path for path in result.stdout.split(b"\0") if path] if result.returncode == 0 else []
+    if result.returncode != 0:
+        raise AssertionError(f"the corpus revision {rev} cannot be listed: {result.stderr!r}")
+    return [path for path in result.stdout.split(b"\0") if path]
 
 
 def instance(pattern, rng):
     """A path the pattern is written to match, with random folders and names in its wildcards."""
     text = pattern.replace("**/", rng.choice(["", "a/", "a/b/"]))
-    text = re.sub(r"/\*\*$", rng.choice(["/x", "/x/y.rs"]), text)
+    text = re.sub(r"/\*\*$", rng.choice(["", "/x", "/x/y.rs"]), text)
     text = text.replace("**", "w").replace("*", rng.choice(["n", "name-2"])).replace("?", "q")
     return text.encode("ascii")
 
@@ -104,7 +116,7 @@ def corpus(patterns):
     sources = {rev: tree_paths(rev) for rev in CORPUS_REVS}
     base = [path for paths in sources.values() for path in paths]
     base += [instance(pattern, rng) for pattern in patterns for _ in range(3)]
-    base += [path for paths, _ in SEEDED.values() for path in paths]
+    base += [path_of(item) for items, _ in SEEDED.values() for item in items]
     cases = []
     for path in dict.fromkeys(base):
         cases.append(path)
@@ -122,7 +134,6 @@ class DifferentialTest(unittest.TestCase):
     def test_git_matching_agrees_with_the_reference_model(self):
         patterns = list(dict.fromkeys(list_lines(TRUST_CORE) + risk_tier_globs()))
         cases, sources = corpus(patterns)
-        self.assertTrue(sources["HEAD"], "the head's tree could not be listed")
         self.assertGreaterEqual(len(cases), MINIMUM_CASES)
         per_pattern = trust_core_touched.matched_sets([[pattern] for pattern in patterns], cases)
         mismatches = []
@@ -153,6 +164,64 @@ class PathsModeTest(unittest.TestCase):
     def test_a_path_and_a_path_below_it_are_both_matched(self):
         result = run_matcher("--list", str(TRUST_CORE), "--paths", "Cargo.toml", "Cargo.toml/x")
         self.assertEqual((result.returncode, result.stdout), (1, "Cargo.toml\nCargo.toml/x\n"))
+
+    def test_a_folder_line_matches_the_folder_itself(self):
+        folders = [".cargo", "crates/x/.cargo", "platform/macos", "crates/grdr-crypto", "supply-chain"]
+        result = run_matcher("--list", str(TRUST_CORE), "--paths", *folders)
+        self.assertEqual((result.returncode, result.stdout.splitlines()), (1, folders))
+
+
+class FromRevTest(unittest.TestCase):
+    def setUp(self):
+        self.repo = FixtureRepo()
+        self.addCleanup(self.repo.close)
+        self.scratch = tempfile.TemporaryDirectory()
+        self.addCleanup(self.scratch.cleanup)
+        self.alone = pathlib.Path(self.scratch.name) / "matcher.py"
+        self.alone.write_bytes(MATCHER.read_bytes())
+
+    def rules(self, list_text=b"only/**\n", source=None):
+        contents = {trust_core_touched.LIST_PATH.encode(): list_text,
+                    trust_core_touched.CHECK_TREE_PATH.encode(): source or CHECK_TREE.read_bytes()}
+        return self.repo.tree(CLEAN, contents)
+
+    def run_alone(self, *args):
+        return subprocess.run(
+            [sys.executable, "-I", "-B", str(self.alone), *args],
+            cwd=self.repo.root, capture_output=True, text=True, check=False,
+        )
+
+    def test_reads_the_list_and_the_tree_check_from_git_objects(self):
+        result = self.run_alone("--from-rev", self.rules(), "--paths", "only/x", "Cargo.lock")
+        self.assertEqual((result.returncode, result.stdout), (1, "only/x\n"))
+
+    def test_tree_check_from_the_revision_runs_on_the_head(self):
+        rules = self.rules()
+        head = self.repo.tree(CLEAN + [b"rust-toolchain"])
+        result = self.run_alone("--from-rev", rules, "--diff", rules, head)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("rust-toolchain", result.stdout)
+
+    def test_a_revision_without_the_rules_exits_2(self):
+        result = self.run_alone("--from-rev", self.repo.tree(CLEAN), "--paths", "only/x")
+        self.assertEqual((result.returncode, result.stdout), (2, ""))
+
+    def test_a_tree_check_that_stops_exits_2(self):
+        rules = self.rules(source=b"raise RuntimeError\n")
+        result = self.run_alone("--from-rev", rules, "--paths", "only/x")
+        self.assertEqual((result.returncode, result.stdout), (2, ""))
+        self.assertIn("GRDR-GATE-0005", result.stderr)
+
+    def test_list_mode_without_the_tree_check_beside_it_exits_2(self):
+        result = self.run_alone("--list", str(TRUST_CORE), "--paths", "Cargo.lock")
+        self.assertEqual((result.returncode, result.stdout), (2, ""))
+
+    def test_git_missing_exits_2(self):
+        result = subprocess.run(
+            [sys.executable, "-I", "-B", str(MATCHER), "--list", str(TRUST_CORE), "--paths", "Cargo.lock"],
+            cwd=ROOT, capture_output=True, text=True, check=False, env=dict(os.environ, PATH=""),
+        )
+        self.assertEqual((result.returncode, result.stdout), (2, ""))
 
 
 class InputErrorTest(unittest.TestCase):
@@ -200,6 +269,15 @@ class DiffModeTest(unittest.TestCase):
                 self.assertEqual(lines[len(lines) - len(findings):], findings)
                 shown = {line.partition("): ")[2] for line in findings}
                 self.assertTrue({check_tree.shown(path) for path in named} <= shown, shown)
+
+    def test_a_submodule_the_working_tree_ignores_is_still_listed(self):
+        (pathlib.Path(self.repo.root) / ".gitmodules").write_text(
+            '[submodule "v"]\n\tpath = crates/grdr-crypto/v\n\turl = https://example.com/v.git\n\tignore = all\n',
+            encoding="ascii",
+        )
+        result = self.diff(CLEAN + [b"crates/grdr-crypto/src/lib.rs", (SUBMODULE, b"crates/grdr-crypto/v")])
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertEqual(result.stdout.splitlines()[0], "crates/grdr-crypto/v")
 
     def test_a_change_outside_the_list_passes(self):
         result = self.diff(CLEAN + [b"crates/grdr-crypto/src/lib.rs", b"docs/new.md"])

@@ -1,0 +1,33 @@
+name: Pinned Rust toolchain
+description: >-
+  Writes RUSTUP_TOOLCHAIN and the TOOLCHAIN_ values that rust-toolchain.toml pins to GITHUB_ENV
+  (pinned_toolchain.py), then installs that toolchain with rustup unless install is false. Every
+  job that runs rustup or cargo, directly or through an action, calls this before it does.
+
+inputs:
+  install:
+    description: Install the toolchain on the runner; false for a job whose cargo runs in a container.
+    required: false
+    default: "true"
+
+runs:
+  using: composite
+  steps:
+    - name: Write RUSTUP_TOOLCHAIN to GITHUB_ENV from rust-toolchain.toml
+      shell: bash
+      run: |
+        for python in python3 python; do
+          if "$python" -I -c "import tomllib" > /dev/null 2>&1; then
+            "$python" -I -B "$GITHUB_ACTION_PATH/pinned_toolchain.py" rust-toolchain.toml >> "$GITHUB_ENV"
+            exit 0
+          fi
+        done
+        echo "::error::GRDR-GATE-0006 no Python with tomllib on this runner"
+        exit 1
+    - if: inputs.install == 'true'
+      shell: bash
+      run: >-
+        rustup toolchain install "$RUSTUP_TOOLCHAIN"
+        ${TOOLCHAIN_PROFILE:+--profile "$TOOLCHAIN_PROFILE"}
+        ${TOOLCHAIN_COMPONENTS:+--component "$TOOLCHAIN_COMPONENTS"}
+        ${TOOLCHAIN_TARGETS:+--target "$TOOLCHAIN_TARGETS"}

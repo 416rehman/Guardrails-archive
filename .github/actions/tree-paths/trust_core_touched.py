@@ -1,30 +1,32 @@
 """List the paths that touch the trust core.
 
-Usage: python3 -I trust_core_touched.py --list <file> (--diff <base> <head> | --paths <path>...)
+Usage: python3 -I trust_core_touched.py (--list <file> | --from-rev <rev>)
+                                        (--diff <base> <head> | --paths <path>...)
 
 Each line of the list matches as a git :(glob,icase) pathspec from the root, and git does the
-matching. --diff takes the paths of git diff --name-only --no-renames, so a rename gives both names,
-and then prints the findings of check_tree.py, beside this file, on <head>. Exit 0 when nothing is
-printed, 1 when something is, and 2 on an input error.
+matching; a folder line `x/**` also matches the path `x`. --from-rev reads the list and
+check_tree.py from that revision's git objects; otherwise they come from the file named and from
+beside this file. --diff takes the paths of git diff --name-only --no-renames
+--ignore-submodules=none, so a rename gives both names, and then prints check_tree.py's findings on
+<head>. Exit 0 when nothing is printed, 1 when something is, and 2 on an input error or any stop.
 """
 
 import argparse
 import dataclasses
-import importlib.util
 import os
 import pathlib
 import subprocess
 import sys
 import tempfile
+import types
 
-CHECK_TREE_SPEC = importlib.util.spec_from_file_location(
-    "check_tree", pathlib.Path(__file__).resolve().parent / "check_tree.py",
-)
-check_tree = importlib.util.module_from_spec(CHECK_TREE_SPEC)
-CHECK_TREE_SPEC.loader.exec_module(check_tree)
-
+HERE = pathlib.Path(__file__).resolve().parent
+LIST_PATH = "security/trust-core.paths"
+CHECK_TREE_PATH = ".github/actions/tree-paths/check_tree.py"
 MAGIC = ":(glob,icase)"
+FOLDER_SUFFIX = "/**"
 FILE_MODE = "100644"
+PRINTABLE = range(0x20, 0x7F)
 
 # Settings that change which paths git takes into an index or how it reads a pathspec, fixed so
 # the answer does not depend on the host or the caller's environment.
@@ -42,31 +44,74 @@ class IndexGroup:
     folders: set
 
 
+@dataclasses.dataclass
+class Rules:
+    patterns: list
+    check_tree: types.ModuleType
+
+
 def git(args, stdin=b"", index=None):
     environment = {key: value for key, value in os.environ.items() if key not in PATHSPEC_ENVIRONMENT}
     if index is not None:
         environment["GIT_INDEX_FILE"] = index
-    result = subprocess.run(
-        ["git", *GIT_SETTINGS, *args], input=stdin, env=environment, capture_output=True, check=False,
-    )
+    try:
+        result = subprocess.run(
+            ["git", *GIT_SETTINGS, *args], input=stdin, env=environment, capture_output=True, check=False,
+        )
+    except OSError as error:
+        raise InputError(f"cannot run git: {type(error).__name__}") from None
     if result.returncode != 0:
         message = result.stderr.decode("utf-8", "replace").strip()
         raise InputError(message or f"git {args[0]} exited {result.returncode}")
     return result.stdout
 
 
-def read_list(path):
+def read_file(path):
     try:
-        text = pathlib.Path(path).read_bytes()
+        return pathlib.Path(path).read_bytes()
     except OSError as error:
         raise InputError(f"cannot read {path}: {type(error).__name__}") from None
+
+
+def read_object(rev, path):
+    return git(["cat-file", "blob", "--end-of-options", f"{rev}:{path}"])
+
+
+def parse_list(text, origin):
     lines = [line.strip() for line in text.splitlines()]
     patterns = [line for line in lines if line and not line.startswith(b"#")]
     if not patterns:
-        raise InputError(f"{path} holds no pattern")
-    if any(byte not in check_tree.PRINTABLE for pattern in patterns for byte in pattern):
-        raise InputError(f"{path} holds a line outside printable ASCII")
+        raise InputError(f"{origin} holds no pattern")
+    if any(byte not in PRINTABLE for pattern in patterns for byte in pattern):
+        raise InputError(f"{origin} holds a line outside printable ASCII")
     return [pattern.decode("ascii") for pattern in patterns]
+
+
+def load_check_tree(source, origin):
+    """Run check_tree.py's source as a module, so no bytecode file is read or written."""
+    module = types.ModuleType("check_tree")
+    module.__file__ = origin
+    exec(compile(source, origin, "exec"), module.__dict__)
+    return module
+
+
+def read_rules(arguments):
+    if arguments.from_rev is None:
+        source = HERE / "check_tree.py"
+        patterns = parse_list(read_file(arguments.list), arguments.list)
+        return Rules(patterns, load_check_tree(read_file(source), str(source)))
+    rev = arguments.from_rev
+    patterns = parse_list(read_object(rev, LIST_PATH), f"{rev}:{LIST_PATH}")
+    return Rules(patterns, load_check_tree(read_object(rev, CHECK_TREE_PATH), f"{rev}:{CHECK_TREE_PATH}"))
+
+
+def pathspecs(patterns):
+    specs = []
+    for pattern in patterns:
+        specs.append(MAGIC + pattern)
+        if pattern.endswith(FOLDER_SUFFIX):
+            specs.append(MAGIC + pattern.removesuffix(FOLDER_SUFFIX))
+    return specs
 
 
 def folders_above(path):
@@ -96,8 +141,8 @@ def fill_index(top, index, blob, paths):
 
 
 def listed(top, index, patterns):
-    pathspecs = [MAGIC + pattern for pattern in patterns]
-    return set(git(["-C", top, "ls-files", "-z", "--full-name", "--", *pathspecs], index=index).split(b"\0"))
+    specs = pathspecs(patterns)
+    return set(git(["-C", top, "ls-files", "-z", "--full-name", "--", *specs], index=index).split(b"\0"))
 
 
 def matched_sets(pattern_lists, paths):
@@ -124,11 +169,14 @@ def matching(patterns, paths):
 
 
 def changed_paths(base, head):
-    names = git(["diff", "--name-only", "--no-renames", "--no-relative", "-z", "--end-of-options", base, head, "--"])
+    names = git([
+        "diff", "--name-only", "--no-renames", "--no-relative", "--ignore-submodules=none", "-z",
+        "--end-of-options", base, head, "--",
+    ])
     return [name for name in names.split(b"\0") if name]
 
 
-def tree_findings(head):
+def tree_findings(check_tree, head):
     try:
         return check_tree.report_lines(head)
     except check_tree.Unreadable as error:
@@ -136,18 +184,21 @@ def tree_findings(head):
 
 
 def report_lines(arguments):
-    patterns = read_list(arguments.list)
+    rules = read_rules(arguments)
+    shown = rules.check_tree.shown
     if arguments.diff is None:
         paths = [os.fsencode(path) for path in arguments.paths]
-        return [check_tree.shown(path) for path in matching(patterns, paths)]
+        return [shown(path) for path in matching(rules.patterns, paths)]
     base, head = arguments.diff
-    touched = matching(patterns, changed_paths(base, head))
-    return [check_tree.shown(path) for path in touched] + tree_findings(head)
+    touched = matching(rules.patterns, changed_paths(base, head))
+    return [shown(path) for path in touched] + tree_findings(rules.check_tree, head)
 
 
 def main(argv):
     parser = argparse.ArgumentParser(description="List the paths that touch the trust core.")
-    parser.add_argument("--list", required=True)
+    rules = parser.add_mutually_exclusive_group(required=True)
+    rules.add_argument("--list")
+    rules.add_argument("--from-rev")
     source = parser.add_mutually_exclusive_group(required=True)
     source.add_argument("--diff", nargs=2, metavar=("BASE", "HEAD"))
     source.add_argument("--paths", nargs="+", metavar="PATH")
@@ -163,4 +214,9 @@ def main(argv):
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:]))
+    try:
+        status = main(sys.argv[1:])
+    except Exception as error:
+        print(f"::error::GRDR-GATE-0005 the matcher stopped: {type(error).__name__}", file=sys.stderr)
+        status = 2
+    sys.exit(status)

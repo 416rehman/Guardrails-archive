@@ -6,8 +6,8 @@ name: verify
 # (owner instruction 28); a private copy falls back to Linux with no nightly run, because private
 # runner minutes are limited. Until a crate lands under crates/ or programs/ the workspace has no
 # members, Cargo refuses every command, and the Rust steps are skipped. The plan job first runs
-# .github/actions/tree-paths/check_tree.py on the commit and reads the toolchain pin the Rust jobs
-# install.
+# .github/actions/tree-paths/check_tree.py on the commit, and every job that runs cargo first calls
+# the .github/actions/tree-paths action for the pinned toolchain.
 
 on:
   pull_request:
@@ -34,10 +34,6 @@ jobs:
       systems: ${{ steps.plan.outputs.systems }}
       run: ${{ steps.plan.outputs.run }}
       rust: ${{ steps.plan.outputs.rust }}
-      toolchain: ${{ steps.toolchain.outputs.RUSTUP_TOOLCHAIN }}
-      profile: ${{ steps.toolchain.outputs.TOOLCHAIN_PROFILE }}
-      components: ${{ steps.toolchain.outputs.TOOLCHAIN_COMPONENTS }}
-      targets: ${{ steps.toolchain.outputs.TOOLCHAIN_TARGETS }}
     steps:
       - uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
@@ -47,10 +43,7 @@ jobs:
           persist-credentials: false
       # A refused path fails this job, and every job that needs it is skipped.
       - name: Check the paths of the commit's tree
-        run: python3 -I .github/actions/tree-paths/check_tree.py --rev HEAD
-      - name: Read the pinned toolchain from rust-toolchain.toml
-        id: toolchain
-        run: python3 -I .github/actions/tree-paths/pinned_toolchain.py rust-toolchain.toml >> "$GITHUB_OUTPUT"
+        run: python3 -I -B .github/actions/tree-paths/check_tree.py --rev HEAD
       - id: plan
         env:
           GH_TOKEN: ${{ github.token }}
@@ -85,7 +78,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - run: python3 -I -m unittest discover -s .github/actions/tree-paths -p "test_*.py" -v
+      - name: Fetch main for the matcher's differential corpus
+        run: git fetch --no-tags --depth=1 origin +refs/heads/main:refs/remotes/origin/main
+      - run: python3 -I -B -m unittest discover -s .github/actions/tree-paths -p "test_*.py" -v
 
   rust:
     needs: plan
@@ -109,24 +104,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Write RUSTUP_TOOLCHAIN to GITHUB_ENV from rust-toolchain.toml
-        env:
-          CHANNEL: ${{ needs.plan.outputs.toolchain }}
-          PROFILE: ${{ needs.plan.outputs.profile }}
-          COMPONENTS: ${{ needs.plan.outputs.components }}
-          TARGETS: ${{ needs.plan.outputs.targets }}
-        run: |
-          {
-            echo "RUSTUP_TOOLCHAIN=$CHANNEL"
-            echo "TOOLCHAIN_PROFILE=$PROFILE"
-            echo "TOOLCHAIN_COMPONENTS=$COMPONENTS"
-            echo "TOOLCHAIN_TARGETS=$TARGETS"
-          } >> "$GITHUB_ENV"
-      - run: >-
-          rustup toolchain install "$RUSTUP_TOOLCHAIN"
-          ${TOOLCHAIN_PROFILE:+--profile "$TOOLCHAIN_PROFILE"}
-          ${TOOLCHAIN_COMPONENTS:+--component "$TOOLCHAIN_COMPONENTS"}
-          ${TOOLCHAIN_TARGETS:+--target "$TOOLCHAIN_TARGETS"}
+      - uses: $/.github/actions/tree-paths
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
@@ -149,6 +127,11 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - uses: $/.github/actions/tree-paths
+        with:
+          install: "false"
       - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+        env:
+          RUSTUP_TOOLCHAIN: ${{ env.RUSTUP_TOOLCHAIN }}
         with:
           command: check
