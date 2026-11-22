@@ -977,20 +977,33 @@ The required amendments of section 12 were posted before the decision: #246 http
 Each constraint binds the issues named after it. The lead of each issue writes it into the item before readying it, as section 13 asks, and it was posted on each issue under the heading "Constraint from RFC 0005 (decided, #1913)". Where a constraint and the text above differ, the constraint wins for the issues it binds. Where a constraint changes what a host does, the contract text of #245 or #246 takes the same rule, so that a partner host and our daemon answer one way (P17). That is why #245 appears beside #427 under 1a and 11-m1. The new items filed on acceptance are #1914 to #1921, listed after the constraints.
 
 1. Cold start (seats 1, 2 and 4).
-   - 1a. With no tables since start, deny-all applies only to processes inside session containers, and a person's own shell is never denied (D-15; design/07 section 10). This replaces "denies every floor lookup" in R2.17, in the R2.19 row for a load that fails with no tables since start, in section 10's row for a start before any tables were adopted, and in #427's section 13 entry, "R8's deny-all stays for a start before any tables were adopted". Binds #427, #1538 and #245.
-   - 1b. The daemon persists the last bundle it adopted and verifies it again at start. Binds #1538.
-   - 1c. Hooks are enabled only after the first adoption. Binds #1538 and #427.
-   - 1d. A `limits.toml` row bounds the window from start to the first adoption. Binds #1917 for the row, and #1538 and #427, which read it.
+   - 1a. With no tables since start, deny-all applies only to processes inside session containers, and a person's own shell is never denied (D-15; design/07 section 10). This replaces "denies every floor lookup" in R2.17, in the R2.19 row for a load that fails with no tables since start, in section 10's row for a start before any tables were adopted, and in each of these places that say the same:
+     - #427's section 13 entry, "R8's deny-all stays for a start before any tables were adopted";
+     - the Alternatives line "deny-all stays only where the host holds no copy";
+     - the last sentence of the #245 amendment "When the floor cannot answer" (section 12), "A host that has adopted no tables since it started holds no copy, and denies every floor lookup";
+     - the #1538 amendment of R3 (section 12), "on first start, before any tables are adopted, #427's `floor-missing` holds and every floor lookup denies";
+     - #1538's AC-2, "on first start every class denies with floor-missing", which #1538's lead rewrites.
+
+     Binds #427, #1538 and #245, and #1921 for SR-new-W.
+   - 1b. The daemon persists the last bundle it adopted and verifies it again at start. Until the signature check of slice 7 exists, "verifies it again" means the adoption checks on the persisted bundle, the generation floor of D-37 included, and a compile in a fresh instance (#1538 R2). It never means a compiled blob kept from before. A persisted bundle that fails any check leaves no tables. Binds #1538, and #1921 for SR-new-Y.
+   - 1c. Hooks are enabled only after the first adoption. A hook request before the first adoption, from a harness that already holds a registered hook, is answered by the shim's fail-safe table (D-14), never by the daemon. Binds #1538 and #427.
+   - 1d. A `limits.toml` row bounds the window from start to the first adoption. When the bound elapses with no tables adopted, the device stays in the no-tables state of 1a. It is Degraded and reports a code of area `FASTPATH` that #427 registers beside the three of R4.3. It enables nothing, neither hooks nor endpoints, and changes no answer. Binds #1917 for the row, #1538 and #427, which read it, and #1925 for the code's tokens.
 2. Recovery (seats 1, 2 and 4).
-   - 2a. An audited re-adoption request, from the owner or an operator, is treated as an activation. A solo user has one unelevated command for it. Binds #427 and #1538.
-   - 2b. After a repeat `Changed` ends reloading, a slow, bounded background re-adoption from a freshly verified source follows a cooldown. A repeat still ends that cycle, and each attempt raises a finding. This adds rows to R2.19's table. Binds #427 and #1538, and #1917 for its retry policy and cooldown.
+   - 2a. An audited re-adoption request, from the owner or an operator, is treated as an activation. A solo user has one unelevated command for it. The request names no bundle, path or table. The daemon authenticates its peer as it does every other privileged-side request (design/02, SR-01 and SR-04): it refuses the request from agent lineage inside a session and, where an operator is enrolled, from anyone but the operator. Requests count against a `limits.toml` rate row (#1917). #1930 owns the command and its handler. Binds #1930, #427 and #1538, and #1921 for SR-new-X.
+   - 2b. After a repeat `Changed` ends reloading, a slow, bounded background re-adoption from a freshly verified source follows a cooldown. A repeat still ends that cycle, and each attempt raises a finding. The cooldown also covers the requests of 2a, so a loop of requests gives at most the bounded number of adoptions. This adds rows to R2.19's table. Binds #427 and #1538, and #1917 for its retry policy and cooldown.
    - 2c. An incumbent-EDR coexistence case is added to the coexistence pack, with a runbook naming the peer product as first suspect. Binds the coexistence-pack items #641, #727, #575 and #1734.
-3. Person-facing reasons (seats 1, 3, 6 and 9). The floor-missing denial, the three new daemon codes and a deny over an `Unresolved` input each have a registered presentation row and language tokens. Each carries rule, reason and route (D-44), an LTR isolate for identifiers, and `risk = safety` on the denial text. Binds #1384 and #1537 for the block message, #1853, and #1925, which writes the `FASTPATH` code tokens, the presentation rows and the floor-missing block-message kinds and blocks #427.
+3. Person-facing reasons (seats 1, 3, 6 and 9). The floor-missing denial, the daemon's state codes (the three of R4.3 and the one of 1d) and a deny over an `Unresolved` input each have a registered presentation row and language tokens. Each carries rule, reason and route (D-44), an LTR isolate for identifiers, and `risk = safety` on the denial text. Binds #1384 and #1537 for the block message, #1853, and #1925, which writes the `FASTPATH` code tokens, the presentation rows and the floor-missing block-message kinds and blocks #427.
 4. Evidence (seat 3).
    - 4a. Every answer carries a stable `basis` (closed, open or served), the action class and an episode id. Binds #427, and #429, the receipt item that stamps every answer.
-   - 4b. Not a constraint. Seat 3's request that `Changed` carry the failed re-check number contradicts R1.5 and R4, where `Changed` is a leaf that carries no fault type. It is #1926, an amendment item for recording which re-check fired without changing `Error::Changed` (ruling 8 below).
+   - 4b. Not a constraint. Seat 3's request that `Changed` carry the failed re-check number contradicts R1.5 and R4, where `Changed` is a leaf that carries no fault type. It is #1926, an amendment item for recording which re-check fired without changing `Error::Changed` (ruling 8 above).
    - 4c. Inputs carry a resolution state, and a deny over an `Unresolved` input is filed as a coverage gap. Binds #427 and #429.
-   - 4d. Tamper findings are grouped by bundle digest and compiler version. Each `FASTPATH` code declares its routing class in the registry's existing `class` key (RFC 0007), so no new registry field is added. Binds #278 for the registry, and #427, which fills the key and groups the findings.
+   - 4d. Tamper findings are grouped by bundle digest and compiler version. A code's routing class is its `class` key in the registry (RFC 0007; #278 R2: `input`, `policy`, `retryable`, `fatal` or `internal`), so no new registry field is added. The `FASTPATH` codes take these values (`eval-architecture` M1, https://github.com/416rehman/Guardrails/issues/1913#issuecomment-7075660462):
+     - `retryable`: `Arg(Path)`, `Arg(Destination)` and `State`, which the call made again of R2.17 answers; entering floor-missing on `Changed`, where a reload starts at once; and a repeat, which 2b's background re-adoption follows;
+     - `fatal`: `Changed`, whose handle never answers again; a reload policy that gave up; and the 1d bound elapsing;
+     - `internal`: `Arg(Arena)`, `Arg(ActionClass)`, `Arg(PrincipalKind)`, `Arg(Reason)`, `Abi`, `Bundle(Rule(n))` and `Bundle(EvalCap)`. Our daemon loads only blobs its own compile instance writes (R3.7), so each is a defect in our daemon or compiler;
+     - no `FASTPATH` code is `input` or `policy`.
+
+     Binds #278 for the registry, and #427, which fills the key and groups the findings.
 5. Fleet (seat 4).
    - 5a. Floor state, tamper findings and per-rule outcome counts go up as metadata. Binds #706, the heartbeat enforcement state and loss counters, and #1302, the device-side delivery.
    - 5b. A pack promotion preview shows the classes added to the closed set for each organisation. Binds #760, the Watch promotion gate, and #1357, its console panel.
@@ -1012,7 +1025,7 @@ Each constraint binds the issues named after it. The lead of each issue writes i
 9. Slice-0 build order (seat 8, ruled; ruling 6 above).
    - 9a. The C handle record (R1.12), its check word and the C compile entry are built in the embedding slice. The slice-0 host is the Rust daemon, so #418's C work moves after slice 0. Binds #418 and #1918.
    - 9b. The `ScopeEnd` source ordering, `narrow` on expiries and `Facts::Relay` are not built in slice 0. Binds #414, #1918 for `Facts::Relay` and #1919 for `ScopeEnd`.
-   - 9c. Of the copies of the leaf-to-status mapping, only the five-pair match of R4.2 is not built. The ARCH-017 entries keep the fields of R4.1, `status` included, as the one copy of that mapping (P17), and #418's `status_per_variant` reads it (ruling 8 below). Binds #1914 and #418.
+   - 9c. The ARCH-017 entries keep the fields of R4.1, `status` included, as the one copy of the leaf-to-status mapping (P17), and #418's `status_per_variant` reads it (ruling 8 above). No other copy of that mapping is built. The parent-swap check of R4.2 stays as a test in #418 (`eval-architecture` M2, https://github.com/416rehman/Guardrails/issues/1913#issuecomment-7075660462): it holds each entry's `status` to its parent's among the five parent statuses of R1.5, so an entry change that swaps two parents' statuses fails even when both mappings follow it. The five parent pairs are the parent level, not a copy of the leaves, so keeping them adds no copy. The session's instructions for this record's third round kept this check, which replaces "only the five-pair match goes" in ruling 8. Binds #1914 and #418.
    - 9d. RC2 to RC6, the reload state machine of R2.19 and the `Arg` call made again of R2.17 are kept. Binds #410, #412 and #427.
 10. C interface for the embedding slice (seat 5).
     - 10a. Arena writability is stated, or the flag moves to a word the host supplies. Binds #246 and #418.
@@ -1021,7 +1034,7 @@ Each constraint binds the issues named after it. The lead of each issue writes i
     - 10d. A host conformance kit covers path-form vectors, a fake library and cache-key vectors. Binds #1769.
     - 10e. The host's MUSTs and defaults are stated. Binds #246 and #1769.
 11. Evaluator minors, each on the issues its verdict names.
-    - MN9 (round 5 `eval-security`, https://github.com/416rehman/Guardrails/issues/405#issuecomment-7074632321). A recompile on new device facts can clear a class's bit when it drops a fail-closed rule from the floor, so R2.17's "Adding a pack can only set bits" leaves that case out. #414's fold test adds an `Unknown` volume with a non-ASCII literal and expects `FoldNonAscii` in the floor report. #1538 raises a finding when a recompile on new device facts moves an enforced rule from `InFloor` to `NoDeviceValue`, `Unmappable` or `FoldNonAscii`, naming the rule and the outcome, with a test. Binds #414 and #1538, and #1921 for SR-new-U.
+    - MN9 (round 5 `eval-security`, https://github.com/416rehman/Guardrails/issues/405#issuecomment-7074632321). A recompile on new device facts can clear a class's bit when it drops a fail-closed rule from the floor, so R2.17's "Adding a pack can only set bits" leaves that case out. #414's fold test adds an `Unknown` volume with a cased non-ASCII literal, such as `Données`, and expects `FoldNonAscii` in the floor report; 7a's uncased literal stays its own vector (`eval-security` F5, https://github.com/416rehman/Guardrails/issues/1913#issuecomment-7075853473). #1538 raises a finding when a recompile on new device facts moves an enforced rule from `InFloor` to `NoDeviceValue`, `Unmappable` or `FoldNonAscii`, naming the rule and the outcome, with a test. Binds #414 and #1538, and #1921 for SR-new-U.
     - MN10 (same verdict). While the floor is missing, #1538's soak sends a hook request from a shared-host session for honeytoken use and expects the answer Drawbacks states, with `degraded_reason` `floor-missing`. Binds #1538.
     - MN11 (same verdict). The check word folds the section directory as the `count` and `offset` of each of its ten entries, each widened to 32 bytes, and `ffi_record_changed` changes each entry on its own. Binds #418.
     - MN12 (same verdict). Closed in the text by revision 6: R2.17's call made again on `Arg(Path)` or `Arg(Destination)`. Binds #427, which builds it and its R2.20 case.
@@ -1037,31 +1050,39 @@ Each constraint binds the issues named after it. The lead of each issue writes i
     - `eval-architecture` minor 1 (https://github.com/416rehman/Guardrails/issues/405#issuecomment-7075428051). The host's pre-check of a path or a destination name is limited to what the library cannot see. A host passes as `Unresolved` a value it could not resolve or cannot hold in the library's types: a path it could not resolve, an executable it could not hash, a path above `path_max_units`, a name it cannot normalise (7b). For the forms of R2.3a and `tables.md` section 3.3 it may pass the value as `Resolved` and rely on the call made again of R2.17, so the library stays the one checker of those forms. R2.3b's host duty and the #245 bullet "Unresolved values" say so. Binds #245 and #427.
     - `eval-architecture` minor 2 (same verdict). The host's copy of `loss_closed_classes` is a field of the serving and floor-missing variants of #427's floor state type, never an `Option` beside it. The no-tables-since-start variant holds none, so its deny-all (1a) is a variant and not an absent value. Binds #427.
     - `eval-api` O1 (https://github.com/416rehman/Guardrails/issues/405#issuecomment-7075407504). `tables.md` line 49, "The header is 224 bytes." in section 2, is among the sites where 224 becomes 232, beside section 4 item 3, section 5's opening paragraph, TV-5, TV-11 and TV-14 (section 12, `tables.md` item 12). Binds #245.
+    - `eval-security` F3 on this decision (https://github.com/416rehman/Guardrails/issues/1913#issuecomment-7075853473). Three requirements join #1921's scope beside SR-new-A to SR-new-V, in that verdict's wording:
+      - SR-new-W, cold-start scope. With no tables since start the host denies every action of a process inside a session container and nothing outside one; each answer carries `floor-missing`; the 1d bound changes no answer. Component: `tables.md` section 11 and #427's no-tables variant. Test: R2.20 no-tables cases for a contained process, the person's shell, a shared-host hook request and an undetermined process, with the bound elapsed.
+      - SR-new-X, re-adoption request. It names no bundle, path or table; it is accepted only from a peer authenticated by kernel handle, refused from agent lineage inside a session and, where an operator is enrolled, from anyone else; it is audited without content and bounded by a `limits.toml` row. Component: the daemon's request handler and the CLI row (#1930). Test: a negative test from an agent-lineage process and from a second uid, and a loop of requests that gives at most the bounded number of adoptions.
+      - SR-new-Y, persisted bundle. The daemon re-reads at start only the bundle, from the state directory its profile owns, through the adoption checks including the generation floor; any failure leaves no tables. Component: #1538. Test: a persisted copy with a lower generation and one failing a TV rule, each leaving no tables.
+
+      The requirements on the FFI's rules and handle record are oracled in the embedding slice, not slice 0 (9a): `ffi_record_changed`, `ffi_changed_sticky`, #418's C differential and seeded rule tests, `status_per_variant`, the Miri run of `grdr-fastpath-ffi` (#1475) and #1769's C host cases (MN13, m2). #1921 marks each such row with the slice its oracle runs in, so the register claims no control whose test cannot run yet (P9). Binds #1921.
 
 Review lanes (8b). Each lane is the `.claude/risk-tiers.toml` set for the item's tier, kind and diff, as `grdr-work-issue` reads it:
 
 | Items | Lane |
 |---|---|
 | #20, #71, #409, #410, #412, #414, #418, #1778 | High and trust core: the `[high]` set, `eval-api` for `public_api_change`, and two passing evaluators on different models |
-| #427, #1538 | As above, plus `eval-platform` and `eval-performance` for `runtime_trust_core` |
+| #427, #1538, #1930 | As above, plus `eval-platform` and `eval-performance` for `runtime_trust_core` |
 | #388, #1918 | High and trust core (`crates/grdr-ffi/**`), with `eval-api` |
 | #1582, #1768, #1914, #1915, #1917 | High and trust core where the file is listed (`architecture.toml`, `surfaces.toml`, `limits.toml`), plus `eval-architecture` for `kind:gate` |
-| #1475 | High: it changes CI gate configuration, worked by lead-agent-kit |
+| #1475 | High and trust core (`.github/**`), worked by lead-agent-kit |
 | #245, #246, #1769 | High (`spec/**`) |
 | #1916, #1921 | High |
 | #1920 | High and trust core (`crates/grdr-fastpath/**`) |
-| #1919 | The RFC route: the persona council, `eval-architecture`, `eval-security` and `eval-adversarial` |
+| #1925 | Medium, plus `eval-ux` and `eval-a11y` for `interface/**` |
+| #1919, #1926 | The RFC route: the persona council, `eval-architecture`, `eval-security` and `eval-adversarial` |
 
 Filed on acceptance, as section 13 lists them, each blocked by #1913:
 - #1914, the `architecture.toml` change, blocking #414, #418 and #427;
 - #1915, the `surfaces.toml` row kind and rows, blocked by #1817;
 - #1916, the design/03, design/12 and design/26 amendments;
-- #1917, the `limits.toml` rows, blocked by #1768 and blocking #1538 and #427, with the rows of constraints 1d, 2b, 6c and MN14;
+- #1917, the `limits.toml` rows, blocked by #1768 and blocking #1538 and #427, with the rows of constraints 1d, 2a, 2b, 6c and MN14;
 - #1918, `grdr_engine_compile_fastpath`, blocked by #388 and #414;
 - #1919, the RFC for the bundle manifest field;
 - #1920, the fuzz item, blocked by #415, #409 and #412;
-- #1921, the security requirements SR-new-A to SR-new-V, blocked by #1859.
+- #1921, the security requirements SR-new-A to SR-new-Y, blocked by #1859.
 
 Filed in the decision's review, each blocked by #1913:
 - #1925, the `FASTPATH` code tokens, presentation rows and block-message kinds of constraint 3, blocked by #1853 and blocking #427;
-- #1926, the amendment item that takes seat 3's re-check number out of constraint 4b.
+- #1926, the amendment item that takes seat 3's re-check number out of constraint 4b;
+- #1930, the re-adoption command and its daemon handler of constraint 2a, blocked by #427, #1538 and #1917.
