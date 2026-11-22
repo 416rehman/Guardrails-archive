@@ -4,9 +4,12 @@ Each rule is a text match, over the keys and values workflow_reader.py gives it 
 text. A job that has an actions/checkout step must call the pin action in the step after its first
 checkout, and write the channel to GITHUB_ENV as RUSTUP_TOOLCHAIN in the step after that. Steps,
 jobs, local actions and a job's first checkout may hold only the keys and inputs listed here. The
-other matches refuse the spellings they match: a line outside the pin that holds the text rustup or
-writes GITHUB_ENV or GITHUB_PATH, a +toolchain argument after a rustup proxy's name, a variable
-REFUSED_VARIABLES lists set as an env key or as NAME=, and a step condition that runs after a failure.
+other matches each refuse one spelling, in any letter case: a line other than the pin's own that
+holds rustup, github_env, github_path, ::set-env or ::add-path; a RUSTUP_PROXY name, with or
+without a path, a quote or .exe, followed by quotes, backslashes or whitespace and a +; a
+REFUSED_VARIABLES name as an env key, or followed by optional whitespace and = with no letter,
+digit, underscore or hyphen before it; and a step's if: whose text holds the word always, failure
+or cancelled followed by (, or ! followed by success(, with optional whitespace between the parts.
 
 The fixture tables in test_pinned_toolchain.py are the list of forms the test claims to refuse. It
 claims nothing about a form no fixture exercises, even one of the same kind as a fixture's. Every
