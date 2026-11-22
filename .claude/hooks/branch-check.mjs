@@ -149,7 +149,7 @@ function main(argv) {
     const found = findings(state, rules);
     for (const finding of found) process.stdout.write(`${finding.message}\n`);
     process.stdout.write(
-      `branch-check: ${state.branches.length} branches, ${state.pulls.length} open pull requests, ${found.length} findings.\n`,
+      `branch-check: ${state.branches.length} branches, ${state.pulls.length} open pull requests, findings: ${found.length}.\n`,
     );
     return found.length ? EXIT.findings : EXIT.clean;
   } catch (error) {
