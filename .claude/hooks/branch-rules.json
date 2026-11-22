@@ -14,6 +14,7 @@
     }
   ],
   "graphql_page_size": 100,
+  "closing_pages_limit": 50,
   "fork_info_line_limit": 20,
   "gh_output_limit_bytes": 268435456
 }

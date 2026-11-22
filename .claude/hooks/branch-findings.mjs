@@ -19,7 +19,9 @@ const OPEN_PULLS_QUERY = `query($owner: String!, $name: String!, $pageSize: Int!
         number headRefName body
         headRepository { nameWithOwner }
         author { login __typename }
-        closingIssuesReferences(first: $pageSize) { totalCount nodes { number repository { nameWithOwner } } }
+        closingIssuesReferences(first: $pageSize) {
+          totalCount pageInfo { hasNextPage endCursor } nodes { number repository { nameWithOwner } }
+        }
       }
     }
   }
@@ -28,7 +30,21 @@ const OPEN_PULL_FIELDS = `.data.repository.pullRequests.nodes[] | {
   number, head: .headRefName, head_repo: .headRepository.nameWithOwner, body,
   author: (if .author then {login: .author.login, type: .author.__typename} else null end),
   closing_issues: [.closingIssuesReferences.nodes[] | {number, repo: .repository.nameWithOwner}],
-  closing_total: .closingIssuesReferences.totalCount
+  closing_total: .closingIssuesReferences.totalCount,
+  closing_cursor: .closingIssuesReferences.pageInfo.endCursor,
+  closing_more: .closingIssuesReferences.pageInfo.hasNextPage
+}`;
+const CLOSING_PAGE_QUERY = `query($owner: String!, $name: String!, $number: Int!, $pageSize: Int!, $after: String) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) {
+      closingIssuesReferences(first: $pageSize, after: $after) {
+        pageInfo { hasNextPage endCursor } nodes { number repository { nameWithOwner } }
+      }
+    }
+  }
+}`;
+const CLOSING_PAGE_FIELDS = `.data.repository.pullRequest.closingIssuesReferences | {
+  issues: [.nodes[] | {number, repo: .repository.nameWithOwner}], cursor: .pageInfo.endCursor, more: .pageInfo.hasNextPage
 }`;
 
 function captureGroups(source) {
@@ -72,6 +88,7 @@ export function loadRules(text) {
       authors: authors.map(({ login, type }) => ({ login, type })),
     })),
     pageSize: positiveInteger(raw, "graphql_page_size"),
+    closingPagesLimit: positiveInteger(raw, "closing_pages_limit"),
     forkInfoLineLimit: positiveInteger(raw, "fork_info_line_limit"),
     outputLimitBytes: positiveInteger(raw, "gh_output_limit_bytes"),
   };
@@ -116,7 +133,7 @@ export function checkState(state) {
     throw new Error(`the branch list lacks the default branch ${state.default_branch}, so it is not the whole list`);
   }
   const truncated = state.pulls.find((pull) => isOwnPull(pull, state) && isTruncated(pull));
-  if (truncated) throw new Error(`pull request #${truncated.number} closes more issues than one page lists`);
+  if (truncated) throw new Error(`pull request #${truncated.number} closes more issues than GitHub listed (${truncated.closing_issues.length} of ${truncated.closing_total})`);
   return state;
 }
 
@@ -136,14 +153,44 @@ export function openPullsArgs(owner, name, pageSize) {
   return ["api", "graphql", "--paginate", "-f", `query=${OPEN_PULLS_QUERY}`, ...variables, "--jq", OPEN_PULL_FIELDS];
 }
 
-function liveState(rules) {
-  const gh = (args) =>
-    execFileSync("gh", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: rules.outputLimitBytes });
+export function closingPageArgs(owner, name, number, pageSize, after) {
+  const variables = ["-f", `owner=${owner}`, "-f", `name=${name}`, "-F", `number=${number}`, "-F", `pageSize=${pageSize}`, "-f", `after=${after}`];
+  return ["api", "graphql", "-f", `query=${CLOSING_PAGE_QUERY}`, ...variables, "--jq", CLOSING_PAGE_FIELDS];
+}
+
+// Our own pull requests are read to the end, at most closing_pages_limit pages; a fork keeps its
+// first page, since its links are information only.
+function withAllClosingIssues(pull, repository, rules, gh) {
+  const [owner, name] = repository.split("/");
+  let issues = pull.closing_issues;
+  let cursor = pull.closing_cursor;
+  let more = pull.closing_more === true;
+  for (let pages = 1; more; pages += 1) {
+    if (pages >= rules.closingPagesLimit) {
+      throw new Error(`pull request #${pull.number} closes more issues than ${rules.closingPagesLimit} pages list`);
+    }
+    const page = JSON.parse(gh(closingPageArgs(owner, name, pull.number, rules.pageSize, cursor)));
+    if (!Array.isArray(page?.issues)) throw new Error(`GitHub returned no closing references page for pull request #${pull.number}`);
+    issues = [...issues, ...page.issues];
+    cursor = page.cursor;
+    more = page.more === true;
+  }
+  return { ...pull, closing_issues: issues };
+}
+
+function runGh(rules) {
+  return (args) => execFileSync("gh", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: rules.outputLimitBytes });
+}
+
+export function liveState(rules, gh = runGh(rules)) {
   const repository = JSON.parse(gh(["api", "repos/{owner}/{repo}", "--jq", "{full_name, default_branch}"]));
   const [owner, name, ...rest] = String(repository.full_name).split("/");
   if (!owner || !name || rest.length) throw new Error(`GitHub named the repository ${repository.full_name}, not owner/name`);
   const branches = lines(gh(["api", "repos/{owner}/{repo}/branches", "--paginate", "--jq", ".[].name"]));
-  const pulls = lines(gh(openPullsArgs(owner, name, rules.pageSize))).map((line) => JSON.parse(line));
+  const firstPages = lines(gh(openPullsArgs(owner, name, rules.pageSize))).map((line) => JSON.parse(line));
+  const pulls = firstPages.map((pull) =>
+    pull.head_repo === repository.full_name ? withAllClosingIssues(pull, repository.full_name, rules, gh) : pull,
+  );
   return { repo: repository.full_name, default_branch: repository.default_branch, branches, pulls };
 }
 

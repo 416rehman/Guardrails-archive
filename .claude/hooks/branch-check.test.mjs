@@ -12,7 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { checkState, findings, forkLinks, loadRules, openPullsArgs, printable, truncatedForks } from "./branch-findings.mjs";
+import { checkState, closingPageArgs, findings, forkLinks, liveState, loadRules, openPullsArgs, printable, truncatedForks } from "./branch-findings.mjs";
 
 const HERE = fileURLToPath(new URL(".", import.meta.url));
 const SCRIPT = join(HERE, "branch-check.mjs");
@@ -131,6 +131,69 @@ test("the first --state wins when it is given twice", () => {
   assert.match(lastLine(result.stdout), /findings: 1\.$/);
 });
 
+// A stand-in for `gh`: answers the four reads by their arguments, in GitHub's shapes after --jq,
+// and records each closing-references page asked for.
+function fakeGh({ ownTotal, forkTotal = 0, pageSize, alwaysMore = false }) {
+  const asked = [];
+  const issuesFrom = (start, count) => Array.from({ length: count }, (_, k) => ({ number: start + k, repo: "example/repo" }));
+  const first = (number, head_repo, total) => ({
+    number, head: number === 1 ? "issue/1" : "patch-1", head_repo, author: PULL.author, body: null,
+    closing_issues: issuesFrom(number * 1000, Math.min(total, pageSize)), closing_total: total,
+    closing_cursor: total > pageSize ? `c${number}-1` : null, closing_more: total > pageSize,
+  });
+  const gh = (args) => {
+    const query = args.find((arg) => arg.startsWith("query=")) ?? "";
+    if (args[1] === "repos/{owner}/{repo}") return JSON.stringify({ full_name: "example/repo", default_branch: "main" });
+    if (args[1] === "repos/{owner}/{repo}/branches") return "main\nissue/1\n";
+    if (query.includes("pullRequests(")) {
+      return [first(1, "example/repo", ownTotal), first(2, "contributor/repo", forkTotal)].map((p) => JSON.stringify(p)).join("\n");
+    }
+    const number = Number(args[args.indexOf("-F") + 1]?.replace("number=", ""));
+    const after = args.find((arg) => arg.startsWith("after="))?.slice(6) ?? "";
+    asked.push({ number, after });
+    const page = Number(after.split("-")[1]);
+    const start = number * 1000 + page * pageSize;
+    const count = Math.max(0, Math.min(pageSize, ownTotal - page * pageSize));
+    const more = alwaysMore || (page + 1) * pageSize < ownTotal;
+    return JSON.stringify({ issues: issuesFrom(start, alwaysMore ? pageSize : count), cursor: `c${number}-${page + 1}`, more });
+  };
+  return { gh, asked };
+}
+
+test("live: an own pull request's closing references are read page by page until complete", () => {
+  const rules = loadRules(RULES_TEXT);
+  const { gh, asked } = fakeGh({ ownTotal: 2 * rules.pageSize + 50, pageSize: rules.pageSize });
+  const state = checkState(liveState(rules, gh));
+  const own = state.pulls.find((pull) => pull.number === 1);
+  assert.equal(own?.closing_issues.length, 2 * rules.pageSize + 50);
+  assert.equal(new Set(own?.closing_issues.map((issue) => issue.number)).size, 2 * rules.pageSize + 50);
+  assert.deepEqual(asked, [{ number: 1, after: "c1-1" }, { number: 1, after: "c1-2" }]);
+  assert.deepEqual(findings(state, rules), []);
+});
+
+test("live: an own pull request over closing_pages_limit could not be looked at", () => {
+  const rules = loadRules(rulesWith((raw) => (raw.closing_pages_limit = 3)));
+  const { gh, asked } = fakeGh({ ownTotal: 10 * rules.pageSize, pageSize: rules.pageSize, alwaysMore: true });
+  assert.throws(() => liveState(rules, gh), /#1 closes more issues than 3 pages list/);
+  assert.equal(asked.length, 2);
+});
+
+test("live: a fork pull request keeps one page and becomes an info line", () => {
+  const rules = loadRules(RULES_TEXT);
+  const { gh, asked } = fakeGh({ ownTotal: 1, forkTotal: rules.pageSize + 1, pageSize: rules.pageSize });
+  const state = checkState(liveState(rules, gh));
+  assert.deepEqual(asked, []);
+  assert.deepEqual(truncatedForks(state), [2]);
+});
+
+test("the closing-references page query passes owner, name and cursor as strings", () => {
+  const args = closingPageArgs("123", "true", 7, 100, "Y3Vyc29y");
+  const field = (flag, value) => args.some((arg, i) => arg === flag && args[i + 1] === value);
+  assert.ok(field("-f", "owner=123") && field("-f", "name=true") && field("-f", "after=Y3Vyc29y"), args.join(" "));
+  assert.ok(field("-F", "number=7") && field("-F", "pageSize=100"), args.join(" "));
+  assert.ok(!args.includes("--paginate"));
+});
+
 test("a flood of fork links prints at most the limit of info lines, one count, then the summary", (t) => {
   const scratch = mkdtempSync(join(tmpdir(), "branch-check-"));
   t.after(() => rmSync(scratch, { recursive: true, force: true }));
@@ -233,7 +296,7 @@ test("a state of the wrong shape could not be looked at", () => {
 
 test("truncated closing references are could-not-look on our pull requests and information on forks", () => {
   const truncated = { closing_issues: [{ number: 2, repo: "example/repo" }], closing_total: 150 };
-  assert.throws(() => checkState({ ...STATE, pulls: [{ ...PULL, ...truncated }] }), /#1 closes more issues than one page lists/);
+  assert.throws(() => checkState({ ...STATE, pulls: [{ ...PULL, ...truncated }] }), /#1 closes more issues than GitHub listed \(1 of 150\)/);
   assert.ok(checkState({ ...STATE, pulls: [PULL, { ...PULL, number: 2, head_repo: "contributor/repo", ...truncated }] }));
   assert.ok(checkState({ ...STATE, pulls: [PULL, { ...PULL, number: 3, head_repo: null, ...truncated }] }));
   const unreadable = { closing_issues: [], closing_total: 1 };
@@ -258,7 +321,7 @@ test("rules missing a value, or with the wrong capture groups, are refused", () 
   for (const key of ["work_branch", "reference_line"]) {
     assert.throws(() => loadRules(rulesWith((raw) => delete raw[key])), new RegExp(`no ${key}`));
   }
-  for (const key of ["exempt_from_name", "graphql_page_size", "fork_info_line_limit", "gh_output_limit_bytes"]) {
+  for (const key of ["exempt_from_name", "graphql_page_size", "closing_pages_limit", "fork_info_line_limit", "gh_output_limit_bytes"]) {
     assert.throws(() => loadRules(rulesWith((raw) => delete raw[key])), new RegExp(key));
   }
   assert.throws(() => loadRules(rulesWith((raw) => (raw.reference_line = "^refs #[0-9]+$"))), /exactly one capture group/);
