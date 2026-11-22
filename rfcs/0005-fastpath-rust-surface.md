@@ -959,14 +959,19 @@ The required amendments of section 12 were posted before the decision: #246 http
    > Declined: cutting RC2 to RC6, the reload state machine, or the `Arg` retry. Each closes an attack found in review, and a one-shot reload would worsen constraints 1 and 2.
 7. Constraint 11 of the decision, on the round 6 `eval-adversarial` m1:
    > Round 6 adversarial m1 is taken in its strict reading: a `Pass` from the retry, for a contained process in a closed class, is answered as the closed answer (D-20). On #427 and #414.
-8. The session's rulings (#1828) on `eval-architecture`'s review of this decision, https://github.com/416rehman/Guardrails/issues/1913#issuecomment-7075512044, given to #1913's third round. They narrow constraint 9's last sentence and move 4b out of the decision:
-   > Constraint 4b: it contradicts the accepted R1.5 and R4, so it cannot be a constraint. Remove it from the Decision section. File it as an amendment issue for a later RFC 0005 amendment, recording which re-check fired, without changing `Error::Changed`.
+8. The session's round 3 rulings for this decision record, on `eval-architecture`'s review of it (https://github.com/416rehman/Guardrails/issues/1913#issuecomment-7075512044), https://github.com/416rehman/Guardrails/issues/1913#issuecomment-7075601428. They narrow constraint 9's last sentence, move 4b out of the decision and rebind constraints 2c, 3, 4d, 5a and 5b:
+   > - 2c binds #641, #727, #575 and #1734.
+   > - #1538 keeps only 2b, the slow background re-adoption, from group 2's coexistence part.
+   > - **2a stays bound to both #427 and #1538**, as eval-architecture judged correct.
+   > - 3 binds #1384, #1537 and #1853, plus a new item for the `FASTPATH` tokens.
+   > - 5a binds #706 and #1302.
+   > - 5b binds #760 and #1357.
+   > - 4d uses the existing `class` key and binds #278 and #427.
+   > - 4b is removed and becomes an amendment item.
+   > - 9c is narrowed: `status` stays the single copy, and only the five-pair match goes.
+   > - 1a also lists line 776.
 
-   > Constraint 9c: it is narrowed. The ARCH-017 entries keep `status` as the single copy of the leaf-to-status mapping (P17), so #418's `status_per_variant` still reads it. Only the third duplicate copy goes.
-
-   > Constraint 4d: it uses the registry's existing `class` key from RFC 0007, so it is not a new field. Bind it to #278, and to #427 for use.
-
-   The same rulings rebind 2c to #641, #727, #575 and #1734, keep #1538 to the slow background re-adoption of 2b, rebind 3 to #1384, #1537, #1853 and a new item (#1925), 5a to #706 and #1302, and 5b to #760 and #1357, and add #427's section 13 entry to the places 1a replaces.
+   The new item for the `FASTPATH` tokens is #1925, and the amendment item is #1926. Line 776 is #427's section 13 entry.
 
 ### Constraints
 Each constraint binds the issues named after it. The lead of each issue writes it into the item before readying it, as section 13 asks, and it was posted on each issue under the heading "Constraint from RFC 0005 (decided, #1913)". Where a constraint and the text above differ, the constraint wins for the issues it binds. Where a constraint changes what a host does, the contract text of #245 or #246 takes the same rule, so that a partner host and our daemon answer one way (P17). That is why #245 appears beside #427 under 1a and 11-m1. The new items filed on acceptance are #1914 to #1921, listed after the constraints.
@@ -977,7 +982,7 @@ Each constraint binds the issues named after it. The lead of each issue writes i
    - 1c. Hooks are enabled only after the first adoption. Binds #1538 and #427.
    - 1d. A `limits.toml` row bounds the window from start to the first adoption. Binds #1917 for the row, and #1538 and #427, which read it.
 2. Recovery (seats 1, 2 and 4).
-   - 2a. An audited re-adoption request, from the owner or an operator, is treated as an activation. A solo user has one unelevated command for it. Binds #427.
+   - 2a. An audited re-adoption request, from the owner or an operator, is treated as an activation. A solo user has one unelevated command for it. Binds #427 and #1538.
    - 2b. After a repeat `Changed` ends reloading, a slow, bounded background re-adoption from a freshly verified source follows a cooldown. A repeat still ends that cycle, and each attempt raises a finding. This adds rows to R2.19's table. Binds #427 and #1538, and #1917 for its retry policy and cooldown.
    - 2c. An incumbent-EDR coexistence case is added to the coexistence pack, with a runbook naming the peer product as first suspect. Binds the coexistence-pack items #641, #727, #575 and #1734.
 3. Person-facing reasons (seats 1, 3, 6 and 9). The floor-missing denial, the three new daemon codes and a deny over an `Unresolved` input each have a registered presentation row and language tokens. Each carries rule, reason and route (D-44), an LTR isolate for identifiers, and `risk = safety` on the denial text. Binds #1384 and #1537 for the block message, #1853, and #1925, which writes the `FASTPATH` code tokens, the presentation rows and the floor-missing block-message kinds and blocks #427.
