@@ -1,6 +1,6 @@
 # ADR-0037: The fast-path Rust surface is the one RFC 0005 states, built under the constraints of its decision
 
-- Status: proposed
+- Status: accepted
 - Date: 2026-11-22
 - Decided by: chief architect
 - Spine: D-05, D-10, D-15, D-20, D-22, D-41, D-60, D-61, D-63, D-71, P5, P8, P9, P14, P17
