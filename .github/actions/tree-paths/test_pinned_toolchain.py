@@ -829,6 +829,8 @@ class WorkflowTest(unittest.TestCase):
         self.assertEqual(workflow_problems(fixture(PINNED + CARGO)), [])
         self.assertEqual(workflow_problems(fixture(PINNED + "      - name: Show the toolchain\n        run: cargo --version\n")), [])
         self.assertEqual(workflow_problems(fixture("      - run: cargo doc\n")), [])
+        second_checkout = CHECKOUT + "          repository: example/rules\n          path: rules\n"
+        self.assertEqual(workflow_problems(fixture(PINNED + second_checkout + CARGO)), [])
         self.assertEqual(workflow_problems(LOCAL_WORKFLOW_CALL), [])
         self.assertEqual(action_problems(COMPOSITE + ECHO), [])
 
