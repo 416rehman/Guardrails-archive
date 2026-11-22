@@ -3,11 +3,11 @@ Title: Clock, Entropy, Monotonic and the retry executor: the first surface of gr
 Author: chief-architect
 Harness: Claude Code
 Model: claude-opus-5-5
-State: Review
+State: Accepted
 Design issue: #1924
 Spine: D-05, D-15, D-60, D-61, P1, P5, P6, P8, P9, P14, P15, P17 (no spine text changes)
 Surfaces: the public crates `grdr-ports` (modules `clock`, `entropy` and `retry`) and `grdr-ports-testkit` (`ManualClock`, `ClockError`, `SeededEntropy`, `block_on`, `Stalled`, the conformance runner, the Clock suite and the `Health` double), and the `grdr-model` type `Monotonic`. As proposals: two rows of `surfaces.toml`; the test kit's error area and codes, and the executor's area `RETRY` with one code; one `limits.toml` row; in `architecture.toml`, two third-party allow-lists, a per-target closure rule, the implementors of `Clock` and `Entropy` in ARCH-003's reader entries, the four lists ARCH-018's clause reads, the confinement of the kit's codes, three ARCH-017 exemption entries and one ARCH-019 exemption; sentences of design/03 sections 2 and 10, design/11 R18 and section 12, design/20 section 1 and design/22 section 2.7; eight security requirements of design/02. No third-party dependency, same-layer edge, wire format or Cedar schema changes
-Decision record: none yet
+Decision record: docs/decisions/ADR-0040-clock-entropy-and-the-retry-executor-adopted-by-rfc-0008.md
 
 To comment, write on issue #1924 of this repository; you need no account on any service other than the code host. A security fix under embargo (D-62) may change a public surface without an RFC; open a retroactive RFC when the fix is disclosed.
 
@@ -646,4 +646,137 @@ Round 7, on blob `72b5957f0dccb45852eea99469f57070bdcf6f16`:
 - the session's rulings for revision 8: https://github.com/416rehman/Guardrails/issues/1924#issuecomment-7080898013
 
 ## Decision
-None yet.
+Accepted by the chief architect under D-61, on RFC file blob `b338780823870d0f81c92e1a6f9cd2a5ec472eb8`, with the spine pin in force, blob `a80859235e7a2a4444648d6fa8d389d78dde6be9`, as its base. The orchestrating session decided the outcome under the owner's delegation (#1828), and this section records it with the constraints the exit rule makes binding. [ADR-0040](../docs/decisions/ADR-0040-clock-entropy-and-the-retry-executor-adopted-by-rfc-0008.md) records the decision.
+
+This RFC decides no pinned path of `rfcs/pins.toml`, so this section holds no decision line, `rfcs/pins.toml` does not change, and no file is added under `rfcs/evidence/` (RFC 0001, "RFC states"; ADR-0036, "Evidence added in route"). The decided file differs from `b338780` only in `State:`, `Decision record:` and this section, as the Review section allows.
+
+### Reasons
+1. **Scope.** Splitting sections 3 and 4 out of RFC 0002 lets #281 and #283 build against a decided text while RFC 0002's tenant boundary is still in review (Motivation). Narrowing the executor to two callers, the calls the uplink's own tasks start and an adapter's connection set-up inside its constructor, removed every major of rounds 5 to 7 that sat in machinery slice 0 does not need. That machinery is #1959's (section 1).
+2. **Layers.** Layers 0 and 1 read no clock or randomness and take `now` and an `Entropy` as arguments. Only `grdr-os-clock` and `grdr-crypto`'s `random` module read the system, and the kit's deterministic adapters reach no program (R1, R3, R4; D-05, P17).
+3. **One executor, held by data and tests.** There is one retry loop, one state per instance and one budget, counter, breaker and health call per class. A failure counts against the peer only by its registered code or its cutoff, and a class's breaker opens only when its health call agrees (R9, R12, R13). ARCH-018's four lists and their fixtures hold who may call it, with review behind the scan (R11; P14).
+4. **Bounds.** Against a dead origin each class reaches the peer about once per backoff, about 241,000 requests a second at ten million devices. That is the cost of a breaker per class against 161,000 to 197,000 with one shared breaker, which could not end a failure on one class's route. A probe with no verdict counts as no answer, so a class closes within `breaker_failures + 1` open periods however many callers wait (R8, section 4; P15).
+5. **Visibility.** Degraded carries a code in every case it is raised, `GRDR-RETRY-0001` after a cutoff, and an adapter's set-up reading is never shown as its current health (R12, section 4; P9).
+6. **Review.** Eight revisions answered every blocker and major. On `b338780` every required evaluator passed, `eval-architecture` on the other model from the metadata block, and no verdict on #1924 fails it. All nine seats support it with changes and none names a broken spine floor. Their changes and the round 8 minors are the constraints below, under the exit rule.
+
+### Review it rests on
+On blob `b338780`, on #1924, each verdict naming that blob and the base above:
+- `eval-architecture` (Sonnet, the other model), pass, minors m1 to m3, the delta of round 8 and the whole blob: https://github.com/416rehman/Guardrails/issues/1924#issuecomment-7081614067
+- `eval-api` (Opus), pass, minors 1 and 2: https://github.com/416rehman/Guardrails/issues/1924#issuecomment-7081689414
+- `eval-adversarial` (Opus), pass, minors m1 to m6, m4 held back under D-62: https://github.com/416rehman/Guardrails/issues/1924#issuecomment-7081761732
+- `eval-security` (Opus), pass, minors 1 to 4: https://github.com/416rehman/Guardrails/issues/1924#issuecomment-7081862512
+
+The nine seats reviewed `b338780`, each supporting with changes and none reporting a broken spine floor: seat 1 https://github.com/416rehman/Guardrails/issues/1924#issuecomment-7081906129, seat 2 https://github.com/416rehman/Guardrails/issues/1924#issuecomment-7081904110, seat 3 https://github.com/416rehman/Guardrails/issues/1924#issuecomment-7081910895, seat 4 https://github.com/416rehman/Guardrails/issues/1924#issuecomment-7081893332, seat 5 https://github.com/416rehman/Guardrails/issues/1924#issuecomment-7081900595, seat 6 https://github.com/416rehman/Guardrails/issues/1924#issuecomment-7081894547, seat 7 https://github.com/416rehman/Guardrails/issues/1924#issuecomment-7081901881, seat 8 https://github.com/416rehman/Guardrails/issues/1924#issuecomment-7081896767, seat 9 https://github.com/416rehman/Guardrails/issues/1924#issuecomment-7081901532.
+
+The decision rests on the `eval-architecture` pass above, as the Review section asks. No pass on an earlier blob is part of it: rounds 1 to 7 are linked above for their findings only.
+
+### Session rulings it relies on
+1. The exit rule, https://github.com/416rehman/Guardrails/issues/1828#issuecomment-7074036273:
+   > An RFC is decided after the first round in which no evaluator reports a blocker or a major. Minor findings from that round, and changes asked by seats that support with changes, do not open another round. They are written into the decision as constraints, each tied to the issue that builds the surface, which must meet it. Every gate stays: each required evaluator must pass on the decided blob, and trust core still needs two models.
+2. The scope cut after round 5, https://github.com/416rehman/Guardrails/issues/1924#issuecomment-7079671821:
+   > Every remaining major sits in machinery for outside callers, ports that serve many principals, or the daemon's decide path, and slice 0's first runnable target needs none of it.
+3. The two callers after round 6, https://github.com/416rehman/Guardrails/issues/1924#issuecomment-7080286990:
+   > **R7-1.** Until #1959 is decided, the executor's callers are exactly two:
+   > - the uplink's outbound calls (`grdr-uplink`);
+   > - an adapter's connection set-up at construction, before it accepts any call.
+4. Revision 8 after round 7, https://github.com/416rehman/Guardrails/issues/1924#issuecomment-7080898013:
+   > **R8-2.** The set-up state does not outlive the constructor
+
+   > **R8-3.** Uplink calls that a local request starts (Enrol for `grdr join`, the STEP_UP ApprovalRequest) do not use the executor, and return their errors to the request.
+5. The deciding round, https://github.com/416rehman/Guardrails/issues/1924#issuecomment-7081876721:
+   > RFC 0008 round 8 has no blocker and no major on any lane. Every required evaluator passed blob `b338780823870d0f81c92e1a6f9cd2a5ec472eb8`
+
+   > The minors become constraints at decision.
+6. The seat reviews and seat 8's cuts, https://github.com/416rehman/Guardrails/issues/1924#issuecomment-7081922479:
+   > All nine support it with changes, and none names a broken spine floor. Under the exit rule, the seats' changes become constraints on the building issues.
+
+   > - **Health vocabulary (cut 1): accepted** as a constraint on #1238 and the adapter items. The Simple view and default CLI output show only Degraded, its code's token and the one next step.
+   > - **Dropping `ClassReading` and the set-up reading (cut 2): declined.**
+   > - **Merging the three Degraded triggers (cut 3): declined as a mechanism, accepted as presentation.**
+   > - **The probe always being the run's own call (cut 4): declined.**
+
+   > - `for_class` and the second class: **declined**, because the uplink's control and data classes are slice 0's.
+   > - `resume` and counter persistence: **declined**, because design/22:147 requires the counter to survive a restart (round 1).
+   > - The empty `run_until_caller` list: already empty.
+   > - The `KIT` code pages: **accepted**, as one generated page for the area.
+
+   > The first is filed as RFC 0008 amendment 1. The second is a constraint on #281 and #1582: replay compares outcomes. Seat 1's busy-local-store point (an error that reaches Decide gets the fail-safe table's answer, never an unmapped deny) is a constraint on the decide-path and local-store items.
+
+### Constraints
+Each constraint binds the issues named after it, and was posted on each under the heading "Constraint from RFC 0008 (decided, #1964)". The lead of each issue writes it into the item before readying it. Where a constraint and the text above differ, the constraint wins for the issues it binds. A constraint that changes the stated surface of `grdr_ports::retry` is carried by an amendment (constraint 4), and the issues it names build the amended surface.
+
+1. **Round 8 evaluator minors.**
+   - 1a. Who calls a start-up module (`eval-architecture` m1, `eval-adversarial` m3). A listed start-up module is entered only through the task its program's start spawns, and ARCH-018 refuses any other call into it, with a fixture of a request handler that awaits the settings module. The reset test's server arm applies a settings revision that turns on an adapter whose back end is down, and that request returns before the set-up. Binds #1967 (the entries), #1582 (the clause and fixture) and #1534 (the server's reset arm).
+   - 1b. The lists' shapes (`eval-architecture` m2). Every module field of ARCH-018's lists is an array, as `only_in` is in `[[arch004.decoder]]`. RFC 0002's sentence that the ARCH-018 list "names each storage adapter's constructor" reads the one layer entry and the `src/setup.rs::connect` convention. Binds #1967 and #1688.
+   - 1c. The area rows (`eval-architecture` m3). The `RETRY` and `KIT` rows carry `owner = "design/03"` and a `subsystem` word naming what fails, the retry executor and the port test kit, as RFC 0007 section 4 gives the row. Binds #1968.
+   - 1d. The share's type (`eval-api` 1). `failure_share()` returns RFC 0007's `Permille`, and so does #1850 change 4's failed share. Carried by amendment 2 (#1966). Binds #1966, #283 and #1850.
+   - 1e. `ClassReading`'s fields (`eval-api` 2). `ClassReading` has exactly the five fields of section 4's block, and amendment 1's `taken` once #1963 is decided. Section 4's "`reading()` copies all of these" reads as the class's breaker, health reading, attempt counter and last code, with the instant of the copy, and #1966 corrects the sentence. Binds #283, #1963 and #1966.
+   - 1f. Degraded flicker under a steady failure rate (`eval-adversarial` m1). The share is counted over the class's last `2 * breaker_failures` attempts, 0 until there are that many, not over the budget's time window, so a steady failure rate holds Degraded without gaps. Carried by #1966. Until it is decided, section 8's residual names the flicker, and the design item records it (#1970). Binds #1966, #283, #1238 and #1970.
+   - 1g. A set-up state carried out of its constructor (`eval-adversarial` m2, `eval-security` minor 1). ARCH-018 fails a closure, an async block or a task inside a listed constructor's body that captures the state, a reference to it or an `Arc` of it and outlives the body, and a listed constructor whose return type holds a state, each with a fixture. SR-new-0008-I's test names these forms. #1966 decides whether a scoped set-up entry point replaces the lexical rule by type. Binds #1582, #1970, #1971 and #1966.
+   - 1h. Held back under D-62 (`eval-adversarial` m4). Component: the `[[arch018.retry_module]]` modules of `grdr-uplink` and the reset test's uplink arm. Its details are in the private record for the leads of #1582, #1238 and #1967, given through the session. Binds #1582, #1238 and #1967.
+   - 1i. Coupling inside one class (`eval-adversarial` m5). #1238 names, for each control-class call kind, whether the run retries its answers. A call kind whose answers are retried often, such as conflicts, takes a class of its own, so a `CheckIn`'s retry is never spent by it. A case: a `CheckIn` every 30 s that needs one retry, beside a task whose calls answer `aborted` at one run a second, ends `BudgetExhausted` in no run. Binds #1238.
+   - 1j. Degraded through `refuted` (`eval-adversarial` m6). The uplink raises Degraded with `last_code()` while `refuted` is above 0, not with the reading's code, which a healthy reading lacks. #1966 corrects section 4's sentence. Binds #1238 and #1966.
+   - 1k. Pacing of the calls a local request starts (`eval-security` minor 2). A call a local request starts opens no connection of its own. It goes on a connection the uplink's own tasks hold, and fails at once with its code while none is up or while the class on its route has an open breaker: `approver-unreachable` for an ApprovalRequest. It reads that state through a read-only accessor and runs nothing through the executor. Test: a dead origin and 100 STEP_UPs with new digests a second for ten minutes; once the control class opens, the uplink makes no ApprovalRequest call, and each Decide denies with `approver-unreachable`. It is SR-new-0008-K. Binds #1238, #215 and #1970.
+   - 1l. Enrol's slot (`eval-security` minor 3). The error of an `Enrol` refused over its bucket names, as its next step, the slot `retry_after_ms` gives, and `grdr join` exits with it. The script or the person waits for that slot; neither the sensor nor the CLI loops. design/32 section 4's sentence says so. Binds #1238, #1286 and #1970.
+   - 1m. The composition root (`eval-security` minor 4). For `grdr-server`, the start-up modules of `[[arch018.constructor_caller]]` are RFC 0002's composition root, `src/compose.rs` and `src/compose/**`. A storage adapter that RFC 0002's `Setup` admits is built only there, never from a settings revision. Binds #1967 and #1688.
+2. **Changes the seats asked for on `b338780`.** Every seat supports with changes. Each change below binds the issues named after it; seat 8's are constraint 3.
+   - 2a. Seat 1.
+     - Standalone, with no server, the uplink builds no state, runs no health call and opens no socket until the device has joined. An update fetch is the uplink's own call under `update-download`, on its own class, and with updates off nothing is built. Test: the daemon started standalone with updates off makes no `RetryState::new` and opens no non-loopback socket (D-48). Binds #1238.
+     - A same-machine adapter's set-up table has a `max_elapsed` of at most a `limits.toml` row, 5 s by default, which its item adds. A local error of class `input` or `policy`, such as a denied permission or a missing path, ends the set-up at its first attempt with no sleep, with a kit case beside `error_codes_spare_the_breaker`. The CLI and the tray show a failed construction as its component, its code and one next step. Binds #1688 and #30.
+     - `GRDR-RETRY-0001`'s token labels the server link, says local rules still apply and gives one next step (#1968). A case under `ManualClock` with a suspend across one call against a healthy origin shows no Degraded after waking (#283, #1238).
+     - The decide path: see constraint 3's last item.
+   - 2b. Seat 2.
+     - The control class of a device that has never completed a check-in takes its cap from its own `[retry.<name>]` table, 10 minutes or more, with full jitter. The 120 s cap applies once the device has checked in. The operate documentation states the calls an hour per device against a blocked origin. Binds #1238.
+     - One operator-started probe per class for `grdr doctor` and `grdr join` is carried by #1966, and doctor shows a reading's age. Binds #1966, #1238 and #1289.
+     - While the operating system reports no network route, or in the seconds after waking before it reports one, the uplink makes no call: it waits for the network-change event of design/22 section 2.7. No failure is recorded and nothing counts towards `breaker_failures` or Degraded, and health shows the device as offline. Binds #1238.
+     - `GRDR-RETRY-0001`'s runbook lists the four causes an administrator can fix, and the `refuted` Degraded text says "calls fail while the health check passes" (#1968).
+     - The first attempt after a suspend waits `U(0, reconnect_spread_ms)`, as design/22 section 2.7 has for an unplanned close. Binds #1238.
+   - 2c. Seat 3.
+     - Replay compares rule outcomes (finding kind, matched span, verdict), never minted ids, so no deterministic `Entropy` enters a program for it (constraint 3). Binds #281 and #1582.
+     - A class reported at its cap, above its share row, with `refuted` above 0 or with an open breaker is a coverage-gap state on the server, shown as "could not look", with pending commands shown as queued. Binds #1238 and #1972.
+     - `taken: Timestamp` on `ClassReading` is amendment 1 (#1963).
+   - 2d. Seat 4.
+     - Enrol sent once: its error carries its code and one next step, and `grdr join` exits with distinct codes for a retryable and a fatal failure, so a deployment script can tell them apart. Test: a scripted Enrol against a peer that drops one call exits with the retryable code. Binds #1238 and #1286.
+     - Degraded, with its code, reaches the server's sensor-health record as metadata only (P8), and #1238's acceptance says so. Binds #1238 and #1972.
+     - The first attempt after start-up takes a full-jitter draw from the device's own generator, with a case, so a fleet-wide restart does not reach the origin at once. Binds #1238.
+     - Destination isolation per organisation and the restart herd for provider-owned integrations go to #1959 (constraint 4c).
+   - 2e. Seat 5.
+     - Neither `grdr-ports` nor `grdr-ports-testkit` is in the normal closure of `grdr-ffi`, `grdr-wasm` or a crate built with the `embedded` profile, per target triple, with a negative fixture. Binds #1580 and #1967.
+     - A host-supplied timer enters through #1927's `OsClock<T: Timer>`; the ARCH-003 list binds this workspace, and `clock::suite()` is the conformance a partner runs on its clock. design/26's embedding options gain that line. Binds #1927 and #1970.
+     - Before either crate leaves `experimental`, every method added to `Clock`, `Entropy` or `Health` is a provided method or the trait is sealed with a stated implementor route, and `RetryError` becomes `#[non_exhaustive]` with a rule for the wildcard arm. The promoting change is an amendment. Binds #1969 and #1741.
+     - The uplink's origin, its class routes and its verification root come from the host's configuration with no compiled default. Test: an empty configuration makes no call and builds no state (design/26 R8). Binds #1238.
+     - A partner narrows a retry table by a settings revision within RFC 0007's rules (`narrow`); a partner's own rows are #1858's. `uplink.degraded-failure-share` stays `fixed`, so no organisation or server moves it (eval-security round 8). The embed page lists the ports that retry nothing until #1959. Binds #1858 and #1688.
+   - 2f. Seat 6.
+     - The persisted counter file holds the counters only: no origin, no code, no instant and nothing that names a person. It lives as long as the state directory, and `grdr leave` and uninstall remove it, with a test that reads it back. Binds #1238 and #1286.
+     - `ClassReading`, `health()`, the set-up reading and the Degraded text show only the `structural` fields of R7: a code, an instant and the label, with no peer address, header or error body, and each message says what happened, why and the one next step. Binds #283 and #1238.
+     - The block message for a retry token whose ApprovalRequest failed shows that error's code and next step within the tray's two clicks. Binds #215.
+     - #1959 carries R9's "the state holds nothing per caller" as an acceptance criterion (constraint 4c).
+   - 2g. Seat 7.
+     - The plans of #281 and #283 quote the sentences of RFC 0002 and #1850 they rely on until those are on `main`, and ADR-0040 maps each public item to its building issue. Binds #281 and #283.
+     - #283 commits its reference model and every case section 7 names as a test, each with a one-line definition. No test name reuses a rule number: section 7's case R1 is a test named for what it shows, the turn ending by time. Each held-back case names the public test that stands in for it: F2 by P6d and SR-new-0008-G's test, F3 by a case with two or more waiting callers and a health call that never answers, U1 by the reset test's uplink arm. Binds #283.
+     - Each failing fixture of ARCH-018's clause asserts a diagnostic that says what is wrong, why and the one next step, and the design/03 row's Fix column carries it. Binds #1582 and #1970.
+     - `cargo public-api`, `cargo semver-checks` and the per-target `cargo metadata --filter-platform` check are documented, with their toolchain and install step, in CONTRIBUTING.md and `grdr-verify` by the item that makes each a gate. Binds #1580 and #1741.
+     - `crates/grdr-ports/AGENTS.md` and the kit's AGENTS.md take the first-content pointer, the test command and R9's "Do not" line in the pull requests of #283 and #281. Binds #281 and #283.
+   - 2h. Seat 9.
+     - `taken: Timestamp`, read in UTC, is amendment 1 (#1963); surfaces show `until` as a duration from `taken`.
+     - Degraded, an open breaker, `abandoned()` and the set-up reading travel as a `MessageRef` with typed arguments, never as formatted text, and are never formatted in `grdr-ports` or the uplink. `GRDR-RETRY-0001` renders in a left-to-right isolate and copies whole. Binds #1238 and #1688.
+     - `Report::to_toml` escapes every `Cf` format character, bidi controls included, as `\uXXXX`, with a case for an adapter name holding U+202E and one in Arabic and Japanese script that round-trips unchanged. Binds #281.
+     - The `/codes/` pages of `RETRY` and `KIT` and the runbook carry left-to-right isolates, a copy action for the identifier, and `ar` and `ja` text. Binds #1968.
+3. **Seat 8, as the session ruled (ruling 6).** The Simple view and default CLI output show only Degraded, its code's token and the one next step; breaker, abandoned, `refuted` and set-up readings appear only in the Advanced view and in diagnostics output (cut 1). The three Degraded triggers stay as mechanisms and read as one Degraded (cut 3). The `KIT` area has one generated page (cut 5). Cuts 2 and 4, and cut 5's `for_class` and `resume`, are declined for the reasons the ruling quotes. Replay compares outcomes (seat 3, constraint 2c). An error that reaches Decide gets the fail-safe table's answer, never an unmapped deny; a local store may set its driver's lock wait from a `limits.toml` row within the decide budget, and adds no retry loop (seat 1). Binds #1238 and #1688 for cut 1, #1238 for cut 3, #1968 for cut 5, #281 and #1582 for replay, and #1536 and #30 for the decide path.
+4. **Amendments and moved work.**
+   - 4a. #1963, amendment 1: `taken: Timestamp` on `ClassReading` (seats 3 and 9). It blocks #283 and #1238 before they are readied.
+   - 4b. #1966, amendment 2: the share as `Permille` (1d), counted over recent attempts (1f), the scoped set-up entry point (1g), the operator-started probe (2b) and the two sentence corrections (1e, 1j). It blocks #283 and #1238 before they are readied.
+   - 4c. #1959 takes, beside what section 1 lists as moved: per-organisation budget, counter and breaker for a destination many organisations share, with an 80-organisation test (seat 4); a full-jitter first attempt after start-up for provider-wide restarts (seat 4); and R9's "the state holds nothing per caller" as an acceptance criterion (seat 6).
+
+### Filed on acceptance
+Each cites RFC 0008 and is blocked by #1964:
+- #1966, amendment 2 (constraint 4b);
+- #1967, the `architecture.toml` entries of section 8, for lead-agent-kit, trust core;
+- #1968, the `KIT` and `RETRY` code areas, their pages, tokens and runbook, for lead-agent-kit, trust core, blocked by #278;
+- #1969, the two `surfaces.toml` rows, for lead-agent-kit, trust core, blocked by #1817 and #1915. Section 8 put these rows in the protected change; they are split from #1967 because they wait on the row kind;
+- #1970, the design/02, 03, 11, 20, 22, 26 and 32 texts of section 8 and the constraints, for the chief architect;
+- #1971, the two `eval-architecture` review duties of section 7's R9 and P17 rows, for lead-agent-kit;
+- #1972, the server's coverage-gap state for a stalled uplink class (constraint 2c), also blocked by #1238.
+
+Section 7's reset test was posted as a constraint on the start items: #1534 for `grdr-server`, #1744 for the daemon and #1238 for `grdr-uplink`, with constraints 1a and 1h for its server and uplink arms.
+
+The constraints were posted on #30, #215, #281, #283, #1238, #1286, #1289, #1534, #1536, #1580, #1582, #1688, #1741, #1744, #1850, #1858, #1927, #1959 and #1963. #1580 and #1582 also carry section 8's fixtures and clauses, #1850 section 8's uses of the `grdr-model` types, and #1688 the construction cases' `FixtureError::Open` with its `ClassReading`.
