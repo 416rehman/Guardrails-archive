@@ -69,6 +69,10 @@ rust-toolchain.toml
 .cargo/**
 deny.toml
 deny.*.toml
+.deny.exceptions.toml
+.deny.toml
+.config/deny.exceptions.toml
+.config/deny.toml
 **/clippy.toml
 rustfmt.toml
 architecture.toml
