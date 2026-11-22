@@ -7,12 +7,12 @@
 // `unreadable-adv-*` are the eval-adversarial cases of round 1 in that shape.
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { checkState, findings, forkLinks, loadRules, openPullsArgs, printable } from "./branch-findings.mjs";
+import { checkState, findings, forkLinks, loadRules, openPullsArgs, printable, truncatedForks } from "./branch-findings.mjs";
 
 const HERE = fileURLToPath(new URL(".", import.meta.url));
 const SCRIPT = join(HERE, "branch-check.mjs");
@@ -23,7 +23,7 @@ const STATE_FIXTURES = FIXTURE_NAMES.filter((name) => /^(pass|fail)-.+\.json$/.t
 const UNREADABLE_FIXTURES = FIXTURE_NAMES.filter((name) => name.startsWith("unreadable"));
 const SUMMARY = /^branch-check: example\/repo: \d+ branches, \d+ open pull requests, fork links: (\d+), findings: (\d+)\.$/;
 const LINK_REFUSED = new Set(["EPERM", "EACCES", "ENOTSUP", "ENOSYS"]);
-const PULL = { number: 1, head: "issue/1", head_repo: "example/repo", author: { login: "example-dev", type: "User" }, body: null, closing_issues: [] };
+const PULL = { number: 1, head: "issue/1", head_repo: "example/repo", author: { login: "example-dev", type: "User" }, body: null, closing_issues: [], closing_total: 0 };
 const STATE = { repo: "example/repo", default_branch: "main", branches: ["main", "issue/1"], pulls: [PULL] };
 
 function run(script, ...args) {
@@ -82,11 +82,17 @@ for (const name of STATE_FIXTURES) {
     const result = run(SCRIPT, "--state", join(FIXTURES, name));
     assert.equal(result.status, seededFailure ? 1 : 0, result.stderr);
     const printed = result.stdout.split(/\r?\n/);
-    for (const { subject } of fixture.expect) assert.ok(printed.some((line) => line.startsWith(`${printable(subject)}: `)), subject);
+    for (const { subject } of fixture.expect) {
+      const shown = subject.startsWith("#") ? subject : printable(subject);
+      assert.ok(printed.some((line) => line.startsWith(`finding: ${shown}: `)), subject);
+    }
+    assert.equal(printed.filter((line) => line.startsWith("finding: ")).length, fixture.expect.length);
     const summary = SUMMARY.exec(lastLine(result.stdout));
     assert.ok(summary, `last line: ${lastLine(result.stdout)}`);
     assert.equal(Number(summary[1]), expectedForkLinks.length);
     assert.equal(Number(summary[2]), fixture.expect.length);
+    const truncated = printed.filter((line) => /^info: fork pull request #\d+ closes more issues than one page lists/.test(line));
+    assert.deepEqual(truncated.map((line) => Number(/#(\d+)/.exec(line)?.[1])), fixture.expect_truncated_forks ?? []);
   });
 }
 
@@ -125,8 +131,31 @@ test("the first --state wins when it is given twice", () => {
   assert.match(lastLine(result.stdout), /findings: 1\.$/);
 });
 
-test("branch names outside printable ASCII are printed escaped and quoted", () => {
-  assert.equal(printable("issue/30"), "issue/30");
+test("a flood of fork links prints at most the limit of info lines, one count, then the summary", (t) => {
+  const scratch = mkdtempSync(join(tmpdir(), "branch-check-"));
+  t.after(() => rmSync(scratch, { recursive: true, force: true }));
+  const forks = 10;
+  const refsEach = 6058;
+  const body = Array.from({ length: refsEach }, (_, k) => `Refs #${k + 1}`).join("\n");
+  const flood = Array.from({ length: forks }, (_, k) => ({ ...PULL, number: 100 + k, head: `patch-${k}`, head_repo: "outsider/repo", body }));
+  const file = join(scratch, "flood.json");
+  writeFileSync(file, JSON.stringify({ ...STATE, pulls: [PULL, ...flood] }));
+  const limit = JSON.parse(RULES_TEXT).fork_info_line_limit;
+  const result = run(SCRIPT, "--state", file);
+  assert.equal(result.status, 0, result.stderr);
+  const printed = result.stdout.split(/\r?\n/).filter(Boolean);
+  assert.equal(printed.length, limit + 2);
+  assert.equal(printed.at(-2), `info: ${forks * refsEach - limit} more fork links not shown.`);
+  const summary = SUMMARY.exec(printed.at(-1) ?? "");
+  assert.ok(summary, printed.at(-1));
+  assert.equal(Number(summary[1]), forks * refsEach);
+  assert.equal(Number(summary[2]), 0);
+});
+
+test("branch names are always quoted, with anything outside printable ASCII escaped", () => {
+  assert.equal(printable("issue/30"), '"issue/30"');
+  assert.equal(printable("info"), '"info"');
+  assert.equal(printable('a"b\\c'), '"a\\u{22}b\\u{5c}c"');
   assert.equal(printable("issue/30\n"), '"issue/30\\u{a}"');
   assert.equal(printable("issue/30\u200b"), '"issue/30\\u{200b}"');
   assert.equal(printable("d\u0435pendabot/x"), '"d\\u{435}pendabot/x"');
@@ -195,8 +224,22 @@ test("a state of the wrong shape could not be looked at", () => {
     { ...STATE, pulls: [{ ...PULL, author: { login: "example-dev" } }] },
     { ...STATE, pulls: [{ ...PULL, closing_issues: undefined }] },
     { ...STATE, pulls: [{ ...PULL, closing_issues: [30] }] },
+    { ...STATE, pulls: [{ ...PULL, closing_total: undefined }] },
+    { ...STATE, pulls: [{ ...PULL, closing_total: -1 }] },
+    { ...STATE, pulls: [{ ...PULL, closing_issues: [{ number: 2, repo: "example/repo" }], closing_total: 0 }] },
   ];
   for (const state of wrong) assert.throws(() => checkState(state), /documented shape/);
+});
+
+test("truncated closing references are could-not-look on our pull requests and information on forks", () => {
+  const truncated = { closing_issues: [{ number: 2, repo: "example/repo" }], closing_total: 150 };
+  assert.throws(() => checkState({ ...STATE, pulls: [{ ...PULL, ...truncated }] }), /#1 closes more issues than one page lists/);
+  assert.ok(checkState({ ...STATE, pulls: [PULL, { ...PULL, number: 2, head_repo: "contributor/repo", ...truncated }] }));
+  assert.ok(checkState({ ...STATE, pulls: [PULL, { ...PULL, number: 3, head_repo: null, ...truncated }] }));
+  const unreadable = { closing_issues: [], closing_total: 1 };
+  assert.throws(() => checkState({ ...STATE, pulls: [{ ...PULL, ...unreadable }] }), /#1 closes more issues/);
+  const fork = { ...PULL, number: 4, head_repo: "contributor/repo", ...unreadable };
+  assert.deepEqual(truncatedForks(checkState({ ...STATE, pulls: [PULL, fork] })), [4]);
 });
 
 test("a branch list without the default branch is incomplete", () => {
@@ -215,7 +258,7 @@ test("rules missing a value, or with the wrong capture groups, are refused", () 
   for (const key of ["work_branch", "reference_line"]) {
     assert.throws(() => loadRules(rulesWith((raw) => delete raw[key])), new RegExp(`no ${key}`));
   }
-  for (const key of ["exempt_from_name", "graphql_page_size", "gh_output_limit_bytes"]) {
+  for (const key of ["exempt_from_name", "graphql_page_size", "fork_info_line_limit", "gh_output_limit_bytes"]) {
     assert.throws(() => loadRules(rulesWith((raw) => delete raw[key])), new RegExp(key));
   }
   assert.throws(() => loadRules(rulesWith((raw) => (raw.reference_line = "^refs #[0-9]+$"))), /exactly one capture group/);

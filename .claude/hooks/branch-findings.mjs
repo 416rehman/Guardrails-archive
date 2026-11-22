@@ -72,6 +72,7 @@ export function loadRules(text) {
       authors: authors.map(({ login, type }) => ({ login, type })),
     })),
     pageSize: positiveInteger(raw, "graphql_page_size"),
+    forkInfoLineLimit: positiveInteger(raw, "fork_info_line_limit"),
     outputLimitBytes: positiveInteger(raw, "gh_output_limit_bytes"),
   };
 }
@@ -88,8 +89,18 @@ function isPull(pull) {
     (pull.author === null || isAuthor(pull.author)) &&
     (pull.body === null || typeof pull.body === "string") &&
     Array.isArray(pull.closing_issues) &&
-    pull.closing_issues.every(isClosingIssue)
+    pull.closing_issues.every(isClosingIssue) &&
+    Number.isSafeInteger(pull.closing_total) &&
+    pull.closing_total >= pull.closing_issues.length
   );
+}
+
+function isTruncated(pull) {
+  return pull.closing_total > pull.closing_issues.length;
+}
+
+function isOwnPull(pull, state) {
+  return pull.head_repo === state.repo;
 }
 
 export function checkState(state) {
@@ -104,7 +115,14 @@ export function checkState(state) {
   if (!state.branches.includes(state.default_branch)) {
     throw new Error(`the branch list lacks the default branch ${state.default_branch}, so it is not the whole list`);
   }
+  const truncated = state.pulls.find((pull) => isOwnPull(pull, state) && isTruncated(pull));
+  if (truncated) throw new Error(`pull request #${truncated.number} closes more issues than one page lists`);
   return state;
+}
+
+// A fork pull request with an incomplete list stays information: any account can open one.
+export function truncatedForks(state) {
+  return state.pulls.filter((pull) => !isOwnPull(pull, state) && isTruncated(pull)).map((pull) => pull.number);
 }
 
 function lines(text) {
@@ -126,8 +144,6 @@ function liveState(rules) {
   if (!owner || !name || rest.length) throw new Error(`GitHub named the repository ${repository.full_name}, not owner/name`);
   const branches = lines(gh(["api", "repos/{owner}/{repo}/branches", "--paginate", "--jq", ".[].name"]));
   const pulls = lines(gh(openPullsArgs(owner, name, rules.pageSize))).map((line) => JSON.parse(line));
-  const truncated = pulls.find((pull) => pull.closing_total !== pull.closing_issues?.length);
-  if (truncated) throw new Error(`pull request #${truncated.number} closes more issues than one page lists`);
   return { repo: repository.full_name, default_branch: repository.default_branch, branches, pulls };
 }
 
@@ -151,10 +167,6 @@ function linkedIssues(pull, state, rules) {
   return issues;
 }
 
-function isOwnPull(pull, state) {
-  return pull.head_repo === state.repo;
-}
-
 function isByAuthor(pull, authors) {
   return authors.some((author) => author.login === pull.author?.login && author.type === pull.author?.type);
 }
@@ -167,10 +179,10 @@ function isExempt(branch, pulls, rules) {
   );
 }
 
-// Branch names reach a terminal: anything outside printable ASCII is shown escaped and quoted, so a
-// control character cannot rewrite the output and a homoglyph is visible.
+// Branch names reach a terminal: always quoted, with anything outside printable ASCII escaped, so a
+// control character cannot rewrite the output, a homoglyph is visible and a branch named `info`
+// cannot pass for an info line.
 export function printable(name) {
-  if (/^[\x21-\x7e]+$/.test(name)) return name;
   const escaped = [...name].map((char) => (/^[\x20-\x7e]$/.test(char) && char !== '"' && char !== "\\" ? char : `\\u{${char.codePointAt(0)?.toString(16)}}`));
   return `"${escaped.join("")}"`;
 }
@@ -241,14 +253,25 @@ export function forkLinks(state, rules) {
     .flatMap((pull) => [...linkedIssues(pull, state, rules)].map((issue) => ({ pull: pull.number, issue })));
 }
 
+// At most the rules' limit of fork lines, then one count, so a flood from forks cannot push the
+// summary line out of a reader's view.
+function infoLines(state, links, rules) {
+  const all = [
+    ...truncatedForks(state).map((pull) => `info: fork pull request #${pull} closes more issues than one page lists; only those listed are read.`),
+    ...links.map((link) => `info: fork pull request #${link.pull} links #${link.issue}; fork links raise no finding.`),
+  ];
+  const hidden = all.length - rules.forkInfoLineLimit;
+  return hidden > 0 ? [...all.slice(0, rules.forkInfoLineLimit), `info: ${hidden} more fork links not shown.`] : all;
+}
+
 export function main(argv) {
   try {
     const rules = loadRules(readFileSync(RULES_FILE, "utf8"));
     const state = stateFrom(argv, rules);
     const found = findings(state, rules);
     const links = forkLinks(state, rules);
-    for (const finding of found) process.stdout.write(`${finding.message}\n`);
-    for (const link of links) process.stdout.write(`info: fork pull request #${link.pull} links #${link.issue}; fork links raise no finding.\n`);
+    for (const finding of found) process.stdout.write(`finding: ${finding.message}\n`);
+    for (const line of infoLines(state, links, rules)) process.stdout.write(`${line}\n`);
     process.stdout.write(
       `branch-check: ${state.repo}: ${state.branches.length} branches, ${state.pulls.length} open pull requests, fork links: ${links.length}, findings: ${found.length}.\n`,
     );
