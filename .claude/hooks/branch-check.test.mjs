@@ -12,7 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { checkState, findings, forkLinks, loadRules, printable } from "./branch-findings.mjs";
+import { checkState, findings, forkLinks, loadRules, openPullsArgs, printable } from "./branch-findings.mjs";
 
 const HERE = fileURLToPath(new URL(".", import.meta.url));
 const SCRIPT = join(HERE, "branch-check.mjs");
@@ -142,9 +142,18 @@ test("every finding names the fix and where it is written", () => {
 
 test("Dependabot's prefix and release-please's one branch, each with its bot author, are the only exemptions", () => {
   assert.deepEqual(loadRules(RULES_TEXT).exemptions, [
-    { prefix: "dependabot/", name: undefined, authors: [{ login: "dependabot", type: "Bot" }] },
-    { prefix: undefined, name: "release-please--branches--main", authors: [{ login: "github-actions", type: "Bot" }] },
+    { match: "prefix", value: "dependabot/", authors: [{ login: "dependabot", type: "Bot" }] },
+    { match: "name", value: "release-please--branches--main", authors: [{ login: "github-actions", type: "Bot" }] },
   ]);
+});
+
+test("the open pull request query passes owner and name as strings", () => {
+  const args = openPullsArgs("123", "true", 100);
+  const field = (flag, value) => args.some((arg, i) => arg === flag && args[i + 1] === value);
+  assert.ok(field("-f", "owner=123"), args.join(" "));
+  assert.ok(field("-f", "name=true"), args.join(" "));
+  assert.ok(field("-F", "pageSize=100"), args.join(" "));
+  assert.ok(!args.some((arg, i) => arg === "-F" && /^(owner|name)=/.test(args[i + 1] ?? "")));
 });
 
 test("an exemption names exactly one of prefix and name, and authors with login and type", () => {

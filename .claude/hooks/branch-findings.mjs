@@ -68,8 +68,7 @@ export function loadRules(text) {
     workBranch: issuePattern(raw, "work_branch", ""),
     referenceLine: issuePattern(raw, "reference_line", "gim"),
     exemptions: exempt.map(({ prefix, name, authors }) => ({
-      prefix,
-      name,
+      ...(prefix === undefined ? { match: "name", value: name } : { match: "prefix", value: prefix }),
       authors: authors.map(({ login, type }) => ({ login, type })),
     })),
     pageSize: positiveInteger(raw, "graphql_page_size"),
@@ -112,6 +111,13 @@ function lines(text) {
   return text.split(/\r?\n/).filter(Boolean);
 }
 
+// `-f` keeps owner and name as strings; `-F` would turn a repository named `true` or `123` into a
+// boolean or a number.
+export function openPullsArgs(owner, name, pageSize) {
+  const variables = ["-f", `owner=${owner}`, "-f", `name=${name}`, "-F", `pageSize=${pageSize}`];
+  return ["api", "graphql", "--paginate", "-f", `query=${OPEN_PULLS_QUERY}`, ...variables, "--jq", OPEN_PULL_FIELDS];
+}
+
 function liveState(rules) {
   const gh = (args) =>
     execFileSync("gh", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: rules.outputLimitBytes });
@@ -119,8 +125,7 @@ function liveState(rules) {
   const [owner, name, ...rest] = String(repository.full_name).split("/");
   if (!owner || !name || rest.length) throw new Error(`GitHub named the repository ${repository.full_name}, not owner/name`);
   const branches = lines(gh(["api", "repos/{owner}/{repo}/branches", "--paginate", "--jq", ".[].name"]));
-  const query = ["api", "graphql", "--paginate", "-f", `query=${OPEN_PULLS_QUERY}`, "-F", `owner=${owner}`, "-F", `name=${name}`];
-  const pulls = lines(gh([...query, "-F", `pageSize=${rules.pageSize}`, "--jq", OPEN_PULL_FIELDS])).map((line) => JSON.parse(line));
+  const pulls = lines(gh(openPullsArgs(owner, name, rules.pageSize))).map((line) => JSON.parse(line));
   const truncated = pulls.find((pull) => pull.closing_total !== pull.closing_issues?.length);
   if (truncated) throw new Error(`pull request #${truncated.number} closes more issues than one page lists`);
   return { repo: repository.full_name, default_branch: repository.default_branch, branches, pulls };
@@ -157,7 +162,7 @@ function isByAuthor(pull, authors) {
 function isExempt(branch, pulls, rules) {
   return rules.exemptions.some(
     (exemption) =>
-      (exemption.name === undefined ? branch.startsWith(exemption.prefix) : branch === exemption.name) &&
+      (exemption.match === "prefix" ? branch.startsWith(exemption.value) : branch === exemption.value) &&
       pulls.every((pull) => isByAuthor(pull, exemption.authors)),
   );
 }
