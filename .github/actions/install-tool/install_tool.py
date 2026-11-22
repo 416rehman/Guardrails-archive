@@ -6,11 +6,12 @@ Usage: python3 -I .github/actions/install-tool/install_tool.py <tool> --dest <di
        python3 -I .github/actions/install-tool/install_tool.py <tool> --check-release
 
 The first form reads [tool.<tool>] and [install] from supply-chain/build-tools.toml, fetches the
-checksum file, its minisign signature when one is pinned, and this host's asset from
-<source>/releases/download/<version>/, checks every size and digest and the signature, takes the
-binary out of an archive row by name, writes it to <dir> and runs it with version_flag. It prints
+checksum file, its minisign signature when one is pinned, and this host's asset from the addresses
+[install] release_url gives, checks every size and digest and the signature, takes the binary out
+of an archive row by name, writes it to <dir> and runs it with version_flag. It prints
 `installed <tool> <version> <platform> sha256:<asset sha256>`. The second form compares every
-pinned file, size and digest with `gh release view` (GH_TOKEN from the environment).
+pinned file, size and digest with `gh release view` (GH_TOKEN from the environment) and prints
+`release matches <tool> <version>`.
 
 A refusal exits 1 with `::error::GRDR-SUPPLY-<nnnn> <tool> <platform> <file>: <reason>` on stderr,
 prints no downloaded bytes and leaves no file in <dir>. Codes 0005 to 0010 stay literals until
@@ -31,6 +32,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import threading
 import tomllib
 import typing
 import urllib.error
@@ -56,14 +58,18 @@ SIGNATURE = "GRDR-SUPPLY-0008"
 ARCHIVE = "GRDR-SUPPLY-0009"
 VERSION = "GRDR-SUPPLY-0010"
 
-# Assets come from GitHub releases only: `source` names the repository and `gh` checks the pins.
-SOURCE = re.compile(rf"https://github\.com/(?P<repository>{read_pins.FORMS['repository'].pattern})")
-DOWNLOAD = "{source}/releases/download/{version}/{name}"
 RELEASE_VIEW = ["gh", "release", "view"]
+REPO, RELEASE_VERSION, NAME = "{repo}", "{version}", "{name}"
 VERSION_FORM = read_pins.FORMS["version"]
+REPOSITORY_FORM = read_pins.FORMS["repository"]
+VISIBLE_TEXT = re.compile(r"[!-~]+")
 DIGEST = re.compile(r"[0-9a-f]{64}")
-PLAIN_NAME = re.compile(r"(?!.*\.\.)[A-Za-z0-9_+][A-Za-z0-9._+-]*")
-MEMBER_NAME = re.compile(r"(?!.*\.\.)[A-Za-z0-9_+][A-Za-z0-9._+-]*(?:/[A-Za-z0-9_+][A-Za-z0-9._+-]*)*")
+TOOL_NAME = re.compile(r"(?!.*\.\.)[A-Za-z0-9_+][A-Za-z0-9._+-]*")
+FILE_NAME = re.compile(r"(?!.*\.\.)[!-.0-\[\]-~]+")
+MEMBER_NAME = re.compile(r"(?!.*\.\.)[!-.0-\[\]-~]+(?:/[!-.0-\[\]-~]+)*")
+# A dotless stem, or that stem plus lower-case .exe: no other extension a resolver could run,
+# and no trailing character a file system drops.
+BINARY = re.compile(r"(?P<stem>[A-Za-z0-9_+][A-Za-z0-9_+-]*)(?:\.exe)?")
 LOWER_NAME = re.compile(r"[a-z0-9][a-z0-9._-]*")
 PLATFORM_KEY = re.compile(r"[a-z0-9]+-[a-z0-9_]+")
 VERSION_FLAG = re.compile(r"--?[a-z][a-z-]*")
@@ -73,7 +79,6 @@ SIGNATURE_KEYS = ("signature", "signature_size", "minisign_key")
 ROW_KEYS = {"file", "size", "sha256", "binary", "member", "member_size"}
 SYSTEMS = {"Darwin": "macos"}
 MACHINES = {"AMD64": "x86_64", "aarch64": "arm64"}
-WINDOWS_SUFFIX = ".exe"
 EXECUTABLE_MODE = 0o755
 REGULAR_MEMBER = (tarfile.REGTYPE, tarfile.AREGTYPE)
 USAGE = "usage: install_tool.py <tool> --dest <dir> | install_tool.py <tool> --check-release"
@@ -89,6 +94,7 @@ class Refusal(Exception):
 class Download:
     name: str
     size: int
+    url: str
 
 
 @dataclasses.dataclass(frozen=True)
@@ -116,7 +122,6 @@ class Minisign:
 class Pin:
     tool: str
     version: str
-    source: str
     repository: str
     version_flag: str
     timeout: int
@@ -127,11 +132,17 @@ class Pin:
 
 
 @dataclasses.dataclass(frozen=True)
+class Signed:
+    minisign: Minisign
+    signature: bytes
+
+
+@dataclasses.dataclass(frozen=True)
 class Fetched:
     pin: Pin
     row: Row
     checksums: bytes
-    signature: bytes | None  # Present exactly when pin.minisign is.
+    signed: Signed | None  # None when the release publishes no signature.
     asset: bytes
 
 
@@ -219,62 +230,139 @@ def names(table, key, where):
     return tuple(value)
 
 
-def stem(binary):
-    return (binary[:-len(WINDOWS_SUFFIX)] if binary.lower().endswith(WINDOWS_SUFFIX) else binary).lower()
+def plain_https(address):
+    if not VISIBLE_TEXT.fullmatch(address) or "?" in address or "#" in address:
+        return None
+    try:
+        parts = urllib.parse.urlsplit(address)
+        plain = parts.scheme == "https" and bool(parts.hostname) and parts.username is None and parts.password is None
+    except ValueError:
+        return None
+    return parts if plain else None
 
 
-def is_toolchain_name(binary, refused, prefixes):
-    name = stem(binary)
-    return name in refused or any(name.startswith(prefix) and len(name) > len(prefix) for prefix in prefixes)
+def address_template(install, key, placeholders):
+    value = required(install, key, "[install]")
+    parts = plain_https(value) if isinstance(value, str) else None
+    if parts is None or "{" in parts.netloc or "}" in parts.netloc:
+        raise Refusal(MALFORMED, f"[install] {key} is not an https address with its placeholders in the path")
+    rest = value
+    for placeholder in placeholders:
+        if value.count(placeholder) != 1:
+            raise Refusal(MALFORMED, f"[install] {key} does not hold {placeholder} once")
+        rest = rest.replace(placeholder, "")
+    if "{" in rest or "}" in rest:
+        raise Refusal(MALFORMED, f"[install] {key} holds a brace outside its placeholders")
+    return value
 
 
-def read_row(platform_key, row, refused, where):
+def source_repository(table, source_url, where):
+    source = text(table, "source", VISIBLE_TEXT, where)
+    prefix = source_url.removesuffix(REPO)
+    repository = source.removeprefix(prefix)
+    if not source.startswith(prefix) or not REPOSITORY_FORM.fullmatch(repository):
+        raise Refusal(MALFORMED, f"{where} source is not of [install] source_url's form")
+    return repository
+
+
+def release_address(release_url, repository, version, name, where):
+    address = release_url.replace(REPO, repository).replace(RELEASE_VERSION, version).replace(NAME, name)
+    parts = plain_https(address)
+    if parts is None or parts.netloc != urllib.parse.urlsplit(release_url).netloc:
+        raise Refusal(MALFORMED, f"{where} {name} does not fill release_url as an https address on its host")
+    return address
+
+
+def is_toolchain_name(stem, refused, prefixes):
+    return stem in refused or any(stem.startswith(prefix) and len(stem) > len(prefix) for prefix in prefixes)
+
+
+def read_binary(row, refused, where):
+    binary = required(row, "binary", where)
+    form = BINARY.fullmatch(binary) if isinstance(binary, str) else None
+    if form is None:
+        raise Refusal(MALFORMED, f"{where} binary is not a dotless name with or without .exe")
+    if is_toolchain_name(form["stem"].lower(), *refused):
+        raise Refusal(MALFORMED, f"{where} binary is named like a toolchain command in [install]")
+    return binary
+
+
+def read_row(platform_key, row, refused, locate, where):
     where = f"{where} assets {platform_key}"
     if not PLATFORM_KEY.fullmatch(platform_key) or not isinstance(row, dict):
         raise Refusal(MALFORMED, f"{where} is not a platform row")
     if set(row) - ROW_KEYS:
         raise Refusal(MALFORMED, f"{where} holds {sorted(set(row) - ROW_KEYS)!a}")
-    binary = text(row, "binary", PLAIN_NAME, where)
-    if is_toolchain_name(binary, *refused):
-        raise Refusal(MALFORMED, f"{where} binary is named like a toolchain command in [install]")
+    binary = read_binary(row, refused, where)
     has_member = "member" in row or "member_size" in row
     member = Member(text(row, "member", MEMBER_NAME, where), size(row, "member_size", where)) if has_member else None
-    asset = Download(text(row, "file", PLAIN_NAME, where), size(row, "size", where))
+    file = text(row, "file", FILE_NAME, where)
+    asset = Download(file, size(row, "size", where), locate(file))
     return Row(platform_key, asset, text(row, "sha256", DIGEST, where), binary, member)
 
 
-def read_minisign(table, where):
+def read_minisign(table, locate, where):
     if not any(key in table for key in SIGNATURE_KEYS):
         return None
-    signature = Download(text(table, "signature", PLAIN_NAME, where), size(table, "signature_size", where))
+    name = text(table, "signature", FILE_NAME, where)
+    signature = Download(name, size(table, "signature_size", where), locate(name))
     return Minisign(signature, text(table, "minisign_key", MINISIGN_KEY, where))
 
 
+def check_roles(checksums, minisign, rows, where):
+    named = [checksums.name] + ([] if minisign is None else [minisign.signature.name])
+    if len(set(named)) != len(named):
+        raise Refusal(MALFORMED, f"{where} checksums and signature name one file")
+    by_file = {}
+    for row in rows.values():
+        if row.asset.name in named:
+            raise Refusal(MALFORMED, f"{where} {row.asset.name} is both a row's file and checksums or signature")
+        first = by_file.setdefault(row.asset.name, row)
+        if (first.asset.size, first.sha256) != (row.asset.size, row.sha256):
+            raise Refusal(MALFORMED, f"{where} rows {first.platform} and {row.platform} pin {row.asset.name} differently")
+
+
 def validate(tool, table, install):
+    where = f"[tool.{tool}]"
     refused = (names(install, "refused_binaries", "[install]"), names(install, "refused_binary_prefixes", "[install]"))
     timeout = size(install, "timeout_seconds", "[install]")
-    where = f"[tool.{tool}]"
-    source = text(table, "source", SOURCE, where)
+    source_url = address_template(install, "source_url", (REPO,))
+    if not source_url.endswith(REPO):
+        raise Refusal(MALFORMED, f"[install] source_url does not end in {REPO}")
+    release_url = address_template(install, "release_url", (REPO, RELEASE_VERSION, NAME))
+    repository = source_repository(table, source_url, where)
+    version = text(table, "version", VERSION_FORM, where)
+
+    def locate(name):
+        return release_address(release_url, repository, version, name, where)
+
     assets = required(table, "assets", where)
     if not isinstance(assets, dict) or not assets:
         raise Refusal(MALFORMED, f"{where} assets is not a table of platform rows")
+    checksums_name = text(table, "checksums", FILE_NAME, where)
+    checksums = Download(checksums_name, size(table, "checksums_size", where), locate(checksums_name))
+    minisign_pin = read_minisign(table, locate, where)
+    rows = {key: read_row(key, row, refused, locate, where) for key, row in assets.items()}
+    check_roles(checksums, minisign_pin, rows, where)
     return Pin(
         tool=tool,
-        version=text(table, "version", VERSION_FORM, where),
-        source=source,
-        repository=SOURCE.fullmatch(source)["repository"],
+        version=version,
+        repository=repository,
         version_flag=text(table, "version_flag", VERSION_FLAG, where),
         timeout=timeout,
-        checksums=Download(text(table, "checksums", PLAIN_NAME, where), size(table, "checksums_size", where)),
+        checksums=checksums,
         checksums_sha256=text(table, "checksums_sha256", DIGEST, where),
-        minisign=read_minisign(table, where),
-        rows={key: read_row(key, row, refused, where) for key, row in assets.items()},
+        minisign=minisign_pin,
+        rows=rows,
     )
 
 
-def host_platform():
-    system, machine = platform.system(), platform.machine()
+def platform_key(system, machine):
     return f"{SYSTEMS.get(system, system.lower())}-{MACHINES.get(machine, machine.lower())}"
+
+
+def host_platform():
+    return platform_key(platform.system(), platform.machine())
 
 
 def select(pin, host):
@@ -293,28 +381,40 @@ def read_bounded(stream, size_limit):
     return bytes(data)
 
 
-def download(pin, item, open_url):
-    url = DOWNLOAD.format(source=pin.source, version=pin.version, name=item.name)
+def receive(item, timeout, open_url):
     try:
-        with open_url(url, pin.timeout) as response:
+        with open_url(item.url, timeout) as response:
             if response.status != 200:
-                raise Refusal(FETCH, f"HTTP status {response.status}")
-            data = read_bounded(response, item.size)
+                return Refusal(FETCH, f"HTTP status {response.status}")
+            return read_bounded(response, item.size)
     except Refusal as refusal:
-        raise Refusal(refusal.code, refusal.reason, item.name) from None
+        return refusal
     except urllib.error.HTTPError as error:
-        raise Refusal(FETCH, f"HTTP status {error.code}", item.name) from None
-    except (OSError, http.client.HTTPException, ValueError) as error:
-        raise Refusal(FETCH, f"the request failed: {type(error).__name__}", item.name) from None
-    if len(data) != item.size:
+        return Refusal(FETCH, f"HTTP status {error.code}")
+    except Exception as error:  # The worker thread hands every failure back as a refusal.
+        return Refusal(FETCH, f"the request failed: {type(error).__name__}")
+
+
+def download(item, timeout, open_url):
+    outcome = []
+    worker = threading.Thread(target=lambda: outcome.append(receive(item, timeout, open_url)), daemon=True)
+    worker.start()
+    worker.join(timeout)
+    if worker.is_alive() or not outcome:
+        raise Refusal(FETCH, f"the request did not end within {timeout} s", item.name)
+    if isinstance(outcome[0], Refusal):
+        raise Refusal(outcome[0].code, outcome[0].reason, item.name)
+    if len(outcome[0]) != item.size:
         raise Refusal(FETCH, f"the body is not the pinned {item.size} bytes", item.name)
-    return data
+    return outcome[0]
 
 
 def fetch(pin, row, open_url):
-    checksums = download(pin, pin.checksums, open_url)
-    signature = None if pin.minisign is None else download(pin, pin.minisign.signature, open_url)
-    return Fetched(pin, row, checksums, signature, download(pin, row.asset, open_url))
+    checksums = download(pin.checksums, pin.timeout, open_url)
+    signed = None
+    if pin.minisign is not None:
+        signed = Signed(pin.minisign, download(pin.minisign.signature, pin.timeout, open_url))
+    return Fetched(pin, row, checksums, signed, download(row.asset, pin.timeout, open_url))
 
 
 def listed_digest(checksums, name, file):
@@ -344,19 +444,19 @@ def archive_member(data, member, file):
     return content
 
 
-def check_signature(pin, checksums, signature, openssl):
+def check_signature(signed, checksums_name, checksums, openssl, timeout):
     try:
-        minisign.verify(pin.minisign.key, checksums, signature, pin.checksums.name, openssl, pin.timeout)
+        minisign.verify(signed.minisign.key, checksums, signed.signature, checksums_name, openssl, timeout)
     except minisign.SignatureRefused as refused:
-        raise Refusal(SIGNATURE, str(refused), pin.minisign.signature.name) from None
+        raise Refusal(SIGNATURE, str(refused), signed.minisign.signature.name) from None
 
 
 def verify(fetched, openssl):
     pin, row = fetched.pin, fetched.row
     if sha256(fetched.checksums) != pin.checksums_sha256:
         raise Refusal(DIGEST_MISMATCH, "the checksum file's sha256 is not the pinned one", pin.checksums.name)
-    if pin.minisign is not None:
-        check_signature(pin, fetched.checksums, fetched.signature, openssl)
+    if fetched.signed is not None:
+        check_signature(fetched.signed, pin.checksums.name, fetched.checksums, openssl, pin.timeout)
     if listed_digest(fetched.checksums, row.asset.name, pin.checksums.name) != row.sha256:
         raise Refusal(DIGEST_MISMATCH, "the checksum file lists another sha256", row.asset.name)
     if sha256(fetched.asset) != row.sha256:
@@ -452,7 +552,7 @@ def install_tool(tool, dest, runtime):
 
 
 def main(argv, runtime):
-    tool = argv[1] if len(argv) > 1 and PLAIN_NAME.fullmatch(argv[1]) else "-"
+    tool = argv[1] if len(argv) > 1 and TOOL_NAME.fullmatch(argv[1]) else "-"
     try:
         match argv[1:]:
             case [_, "--dest", dest] if tool != "-":

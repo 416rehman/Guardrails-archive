@@ -191,6 +191,13 @@ jobs:
         env:
           CHANNEL: ${{ steps.toolchain.outputs.channel }}
         run: echo "RUSTUP_TOOLCHAIN=${CHANNEL:?}" >> "$GITHUB_ENV"
+      - name: Compare the pins with GitHub's asset digests
+        if: matrix.os == 'ubuntu-26.04'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 -I .github/actions/install-tool/install_tool.py buf --check-release
+          python3 -I .github/actions/install-tool/install_tool.py protoc-gen-connect-openapi --check-release
       - name: Installer, signature, proxy-name and no-build-fetch tests
         run: |
           for python in python3 python; do
@@ -216,10 +223,3 @@ jobs:
         run: |
           "$BUF_FOLDER/buf" --version
           "$OPENAPI_FOLDER/protoc-gen-connect-openapi" --version
-      - name: Compare the pins with GitHub's asset digests
-        if: matrix.os == 'ubuntu-26.04'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          python3 -I .github/actions/install-tool/install_tool.py buf --check-release
-          python3 -I .github/actions/install-tool/install_tool.py protoc-gen-connect-openapi --check-release

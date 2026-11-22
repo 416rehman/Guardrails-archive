@@ -9,14 +9,19 @@
 # (the release's checksum file), `signature`, `signature_size` and `minisign_key` where the
 # release signs that file, and `[tool.<name>.assets]`, one row per platform key with `file`,
 # `size`, `sha256`, `binary` (the installed name) and, for an archive, `member` and `member_size`.
-# `[install]` holds `timeout_seconds`, the bound on each download, and `refused_binaries` and
-# `refused_binary_prefixes`: binary names the installer refuses because a session could put its
-# `--dest` on PATH, where they would shadow the pinned Rust toolchain. A bump of `[tool.buf]`
-# replaces supply-chain/fixtures/install-tool/buf-<version>/ with that release's `sha256.txt`
-# and `sha256.txt.minisig` in the same change.
+# `[install]` holds `timeout_seconds`, the deadline of each download and of each command the
+# installer runs; `source_url` and `release_url`, the forms of `source` and of every address the
+# installer fetches, with `{repo}`, `{version}` and `{name}` filled in as text, which apply only to
+# the tables the installer reads; and `refused_binaries` and `refused_binary_prefixes`: binary
+# names the installer refuses because a session could put its `--dest` on PATH, where they would
+# shadow the pinned Rust toolchain. A bump of `[tool.buf]` replaces
+# supply-chain/fixtures/install-tool/buf-<version>/ with that release's `sha256.txt` and
+# `sha256.txt.minisig` in the same change.
 
 [install]
 timeout_seconds = 60
+source_url = "https://github.com/{repo}"
+release_url = "https://github.com/{repo}/releases/download/{version}/{name}"
 refused_binaries = ["rustup", "cargo", "rustc", "rustdoc", "rustfmt", "clippy-driver", "miri", "rls"]
 refused_binary_prefixes = ["cargo-", "rust-"]
 

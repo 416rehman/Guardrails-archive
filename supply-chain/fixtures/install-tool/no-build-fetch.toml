@@ -13,6 +13,16 @@ jobs:
 """
 
 [[case]]
+name = "the same step in a workflow named *.yaml"
+path = ".github/workflows/seeded.yaml"
+text = """
+jobs:
+  build:
+    steps:
+      - run: curl -sSfLO https://github.com/bufbuild/buf/releases/download/v1.75.0/buf-Linux-x86_64
+"""
+
+[[case]]
 name = "a buf.gen.yaml with a remote plugin"
 path = "proto/buf.gen.yaml"
 text = """
