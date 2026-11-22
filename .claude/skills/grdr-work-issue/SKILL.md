@@ -32,7 +32,7 @@ The owner's rule: **one issue, one branch `issue/<n>`, one pull request**.
 
 `info:` lines are about fork pull requests only. At most `fork_info_line_limit` of `.claude/hooks/branch-rules.json` are printed, then `info: <n> more fork links not shown.`.
 
-A pull request links issue `<n>` through its head `issue/<n>`, GitHub's own closing references (`closingIssuesReferences`: every closing keyword form, `owner/repo#<n>` and issue URLs of this repository, and links set in the Development sidebar), or a line that is only `Refs #<n>`. Links from fork pull requests are printed as `info:` lines and never raise a finding, because any account can open one. A fork pull request whose closing references GitHub lists only in part is an `info:` line too; on a pull request from this repository it means could not look. A branch not named `issue/<n>` that heads two open pull requests is a finding too. Repair what it finds:
+A pull request links issue `<n>` through its head `issue/<n>`, GitHub's own closing references (`closingIssuesReferences`: every closing keyword form, `owner/repo#<n>` and issue URLs of this repository, and links set in the Development sidebar), or a line that is only `Refs #<n>`. Links from fork pull requests are printed as `info:` lines and never raise a finding, because any account can open one. The closing references of a pull request from this repository are read page by page, up to `closing_pages_limit` pages; more than that, or a list shorter than GitHub's count, means could not look. A fork pull request keeps its first page, and a list that page leaves incomplete is an `info:` line. A branch not named `issue/<n>` that heads two open pull requests is a finding too. Repair what it finds:
 
 | Finding | Repair |
 |---|---|
