@@ -20,7 +20,7 @@ ROOT = HERE.parents[2]
 READER = HERE / "pinned_toolchain.py"
 PIN_ACTION_FILE = HERE / "action.yml"
 WORKFLOWS = sorted((ROOT / ".github" / "workflows").glob("*.yml"))
-JOB_HEADER = re.compile(r"^  (?=[a-z][a-z0-9-]*:\s*$)", re.M)
+JOB_HEADER = re.compile(r"^  (?=[A-Za-z_][A-Za-z0-9_-]*:\s*$)", re.M)
 STEP_HEADER = re.compile(r"^      - ", re.M)
 USES = re.compile(r"^\s*(?:- )?uses: ([^@\s]+)", re.M)
 RUST_LINE = re.compile(r"(?:^|[\s;&|(])(?:rustup|cargo) ")
@@ -67,6 +67,26 @@ RUST_JOBS = {
     ("verify.yml", "deny"),
     ("verify.yml", "rust"),
 }
+# Job ids of each legal form: letters of either case, digits, '-' and '_'.
+JOB_ID_FIXTURE = """name: fixture
+jobs:
+  build_docs:
+    runs-on: ubuntu-26.04
+    steps:
+      - run: cargo doc --workspace
+  Build-2:
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: Swatinem/rust-cache@0000000000000000000000000000000000000000
+  _lint:
+    runs-on: ubuntu-26.04
+    steps:
+      - run: rustup show
+  plain:
+    runs-on: ubuntu-26.04
+    steps:
+      - run: echo done
+"""
 
 FULL = """[toolchain]
 channel = "1.99.1"
@@ -146,13 +166,16 @@ class ReaderTest(unittest.TestCase):
         self.assertIn("GRDR-GATE-0003", result.stderr)
 
 
+def jobs_in(name, text):
+    """Each job of one workflow as (workflow file name, job id, its steps' text in order)."""
+    for job in JOB_HEADER.split(text.partition("\njobs:\n")[2])[1:]:
+        steps = STEP_HEADER.split(job.partition("\n    steps:\n")[2])[1:]
+        yield name, job.partition(":")[0], steps
+
+
 def jobs():
-    """Each job as (workflow file name, job id, its steps' text in order)."""
     for workflow in WORKFLOWS:
-        body = workflow.read_text(encoding="utf-8").partition("\njobs:\n")[2]
-        for job in JOB_HEADER.split(body)[1:]:
-            steps = STEP_HEADER.split(job.partition("\n    steps:\n")[2])[1:]
-            yield workflow.name, job.partition(":")[0], steps
+        yield from jobs_in(workflow.name, workflow.read_text(encoding="utf-8"))
 
 
 def step_action(step):
@@ -168,6 +191,10 @@ def runs_rust(step):
 
 
 class WorkflowTest(unittest.TestCase):
+    def test_every_legal_job_id_is_found(self):
+        found = {(job, any(map(runs_rust, steps))) for _, job, steps in jobs_in("fixture.yml", JOB_ID_FIXTURE)}
+        self.assertEqual(found, {("build_docs", True), ("Build-2", True), ("_lint", True), ("plain", False)})
+
     def test_every_action_is_classified(self):
         used = {step_action(step) for _, _, steps in jobs() for step in steps} - {None, PIN_ACTION}
         self.assertEqual(used - ACTIONS.keys(), set())
@@ -206,6 +233,7 @@ class WorkflowTest(unittest.TestCase):
         action = PIN_ACTION_FILE.read_text(encoding="utf-8")
         self.assertIn('pinned_toolchain.py" rust-toolchain.toml >> "$GITHUB_OUTPUT"', action)
         self.assertIn('rustup toolchain install "$CHANNEL"', action)
+        self.assertIn("RUSTUP_TOOLCHAIN: ${{ steps.read.outputs.RUSTUP_TOOLCHAIN }}", action)
         self.assertNotIn("GITHUB_ENV", action.partition("\nruns:\n")[2])
 
 

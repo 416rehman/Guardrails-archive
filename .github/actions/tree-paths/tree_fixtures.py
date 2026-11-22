@@ -10,6 +10,7 @@ import subprocess
 import tempfile
 
 GIT_SETTINGS = ["-c", "core.ignorecase=false", "-c", "core.protectNTFS=false", "-c", "core.protectHFS=false"]
+IDENTITY = ["-c", "user.name=fixture", "-c", "user.email=fixture@example.com"]
 FILE = "100644"
 SYMBOLIC_LINK = "120000"
 SUBMODULE = "160000"
@@ -74,6 +75,11 @@ class FixtureRepo:
             lines.append(f"{mode} {target}\t".encode("ascii") + path + b"\0")
         self.git("update-index", "--add", "-z", "--index-info", stdin=b"".join(lines), index=index)
         return self.git("write-tree", index=index).strip().decode("ascii")
+
+    def commit(self, tree, *parents):
+        """Write a commit of the tree and return its id."""
+        parent_args = [arg for parent in parents for arg in ("-p", parent)]
+        return self.git(*IDENTITY, "commit-tree", tree, *parent_args, "-m", "fixture").strip().decode("ascii")
 
     def listed(self, tree):
         """git's own record of a tree: every (mode, path) ls-tree -r -t gives, folders included."""

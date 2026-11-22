@@ -8,6 +8,7 @@ broken, 1 when one is, and 2 when the revision cannot be read or the check stops
 """
 
 import argparse
+import os
 import re
 import subprocess
 import sys
@@ -17,6 +18,7 @@ TOOLCHAIN_FILE = b"rust-toolchain"
 SHORT_NAME = re.compile(rb"~[0-9]")
 SYMBOLIC_LINK = b"120000"
 SUBMODULE = b"160000"
+GIT_NAMES = ("git.exe",) if os.name == "nt" else ("git",)
 
 RULE_BYTES = "a byte outside printable ASCII"
 RULE_CASE = "a path equal to another under ASCII case folding"
@@ -36,9 +38,19 @@ def shown(path):
     return "".join(chr(byte) if byte in PRINTABLE else f"\\x{byte:02x}" for byte in path)
 
 
+def git_program():
+    """git from an absolute PATH entry, never from the working directory."""
+    for folder in os.environ.get("PATH", "").split(os.pathsep):
+        for name in GIT_NAMES if os.path.isabs(folder) else ():
+            candidate = os.path.join(folder, name)
+            if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+                return candidate
+    raise Unreadable("git is not on PATH")
+
+
 def git(*args):
     try:
-        result = subprocess.run(["git", *args], capture_output=True, check=False)
+        result = subprocess.run([git_program(), *args], capture_output=True, check=False)
     except OSError as error:
         raise Unreadable(f"cannot run git: {type(error).__name__}") from None
     if result.returncode != 0:

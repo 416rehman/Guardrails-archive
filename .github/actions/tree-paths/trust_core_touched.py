@@ -8,13 +8,16 @@ matching; a folder line `x/**` also matches the path `x`. --from-rev reads the l
 check_tree.py from that revision's git objects; otherwise they come from the file named and from
 beside this file. --diff takes the paths of git diff --name-only --no-renames
 --ignore-submodules=none, so a rename gives both names, and then prints check_tree.py's findings on
-<head>. Exit 0 when nothing is printed, 1 when something is, and 2 on an input error or any stop.
+<head>. Revisions are full object ids or full refs/ names. git comes from an absolute PATH entry and
+needs no working tree, so GIT_DIR may name the repository. Exit 0 when nothing is printed, 1 when
+something is, and 2 on an input error or any stop.
 """
 
 import argparse
 import dataclasses
 import os
 import pathlib
+import re
 import subprocess
 import sys
 import tempfile
@@ -23,10 +26,14 @@ import types
 HERE = pathlib.Path(__file__).resolve().parent
 LIST_PATH = "security/trust-core.paths"
 CHECK_TREE_PATH = ".github/actions/tree-paths/check_tree.py"
-MAGIC = ":(glob,icase)"
+MAGIC = ":(top,glob,icase)"
+EVERY_PATH = ":(top)"
 FOLDER_SUFFIX = "/**"
 FILE_MODE = "100644"
 PRINTABLE = range(0x20, 0x7F)
+GIT_NAMES = ("git.exe",) if os.name == "nt" else ("git",)
+OBJECT_ID = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
+FULL_REF = "refs/"
 
 # Settings that change which paths git takes into an index or how it reads a pathspec, fixed so
 # the answer does not depend on the host or the caller's environment.
@@ -50,13 +57,24 @@ class Rules:
     check_tree: types.ModuleType
 
 
+def git_program():
+    """git from an absolute PATH entry, never from the working directory."""
+    for folder in os.environ.get("PATH", "").split(os.pathsep):
+        for name in GIT_NAMES if os.path.isabs(folder) else ():
+            candidate = os.path.join(folder, name)
+            if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+                return candidate
+    raise InputError("git is not on PATH")
+
+
 def git(args, stdin=b"", index=None):
     environment = {key: value for key, value in os.environ.items() if key not in PATHSPEC_ENVIRONMENT}
     if index is not None:
         environment["GIT_INDEX_FILE"] = index
     try:
         result = subprocess.run(
-            ["git", *GIT_SETTINGS, *args], input=stdin, env=environment, capture_output=True, check=False,
+            [git_program(), *GIT_SETTINGS, *args], input=stdin, env=environment, capture_output=True,
+            check=False,
         )
     except OSError as error:
         raise InputError(f"cannot run git: {type(error).__name__}") from None
@@ -71,6 +89,13 @@ def read_file(path):
         return pathlib.Path(path).read_bytes()
     except OSError as error:
         raise InputError(f"cannot read {path}: {type(error).__name__}") from None
+
+
+def exact_rev(rev):
+    """A full object id or a full ref name; a short name may resolve through another ref first."""
+    if OBJECT_ID.fullmatch(rev) or rev.startswith(FULL_REF):
+        return rev
+    raise InputError(f"{rev!a} is not a full object id or a refs/ name")
 
 
 def read_object(rev, path):
@@ -100,7 +125,7 @@ def read_rules(arguments):
         source = HERE / "check_tree.py"
         patterns = parse_list(read_file(arguments.list), arguments.list)
         return Rules(patterns, load_check_tree(read_file(source), str(source)))
-    rev = arguments.from_rev
+    rev = exact_rev(arguments.from_rev)
     patterns = parse_list(read_object(rev, LIST_PATH), f"{rev}:{LIST_PATH}")
     return Rules(patterns, load_check_tree(read_object(rev, CHECK_TREE_PATH), f"{rev}:{CHECK_TREE_PATH}"))
 
@@ -132,30 +157,29 @@ def index_groups(paths):
     return [group.paths for group in groups]
 
 
-def fill_index(top, index, blob, paths):
+def fill_index(index, blob, paths):
     entries = b"".join(f"{FILE_MODE} {blob}\t".encode("ascii") + path + b"\0" for path in sorted(paths))
-    git(["-C", top, "update-index", "--add", "-z", "--index-info"], stdin=entries, index=index)
-    held = git(["-C", top, "ls-files", "-z", "--full-name"], index=index)
+    git(["update-index", "--add", "-z", "--index-info"], stdin=entries, index=index)
+    held = git(["ls-files", "-z", "--full-name", "--", EVERY_PATH], index=index)
     if set(held.split(b"\0")) - {b""} != paths:
         raise InputError("git did not take every path into the index")
 
 
-def listed(top, index, patterns):
+def listed(index, patterns):
     specs = pathspecs(patterns)
-    return set(git(["-C", top, "ls-files", "-z", "--full-name", "--", *specs], index=index).split(b"\0"))
+    return set(git(["ls-files", "-z", "--full-name", "--", *specs], index=index).split(b"\0"))
 
 
 def matched_sets(pattern_lists, paths):
     """For each list of patterns, the set of paths that one of its patterns matches."""
-    top = git(["rev-parse", "--show-toplevel"]).strip().decode("utf-8", "surrogateescape")
-    blob = git(["-C", top, "hash-object", "-t", "blob", "--stdin"]).strip().decode("ascii")
+    blob = git(["hash-object", "-t", "blob", "--stdin"]).strip().decode("ascii")
     results = [set() for _ in pattern_lists]
     for group in index_groups(dict.fromkeys(paths)):
         with tempfile.TemporaryDirectory() as scratch:
             index = os.path.join(scratch, "index")
-            fill_index(top, index, blob, group)
+            fill_index(index, blob, group)
             for result, patterns in zip(results, pattern_lists):
-                result |= listed(top, index, patterns) & group
+                result |= listed(index, patterns) & group
     return results
 
 
@@ -189,7 +213,7 @@ def report_lines(arguments):
     if arguments.diff is None:
         paths = [os.fsencode(path) for path in arguments.paths]
         return [shown(path) for path in matching(rules.patterns, paths)]
-    base, head = arguments.diff
+    base, head = (exact_rev(rev) for rev in arguments.diff)
     touched = matching(rules.patterns, changed_paths(base, head))
     return [shown(path) for path in touched] + tree_findings(rules.check_tree, head)
 

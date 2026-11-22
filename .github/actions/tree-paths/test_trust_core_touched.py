@@ -13,6 +13,7 @@ import os
 import pathlib
 import random
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -29,6 +30,7 @@ MATCHER = HERE / "trust_core_touched.py"
 CHECK_TREE = HERE / "check_tree.py"
 TRUST_CORE = ROOT / "security" / "trust-core.paths"
 RISK_TIERS = ROOT / ".claude" / "risk-tiers.toml"
+STEP_FOUR = ROOT / ".claude" / "agents" / "eval-tier.md"
 CORPUS_REVS = ["origin/main", "HEAD"]
 CASE_VARIANTS = 16
 MINIMUM_CASES = 10000
@@ -242,6 +244,60 @@ class InputErrorTest(unittest.TestCase):
                 with self.subTest(case=name):
                     result = run_matcher(*args)
                     self.assertEqual((result.returncode, result.stdout), (2, ""), result.stderr)
+
+
+def bash_program():
+    """Git's own bash on Windows (never the WSL launcher), the PATH bash elsewhere."""
+    if os.name != "nt":
+        return shutil.which("bash")
+    git = pathlib.Path(shutil.which("git") or ".").resolve()
+    return next((str(folder / "bin" / "bash.exe") for folder in git.parents
+                 if (folder / "bin" / "bash.exe").is_file()), None)
+
+
+class StepFourTest(unittest.TestCase):
+    """The real consumer: eval-tier's step 4 command, run as written, in a fixture repository."""
+
+    def setUp(self):
+        self.repo = FixtureRepo()
+        self.addCleanup(self.repo.close)
+        self.bash = bash_program()
+        self.assertIsNotNone(self.bash, "no bash to run the step 4 command")
+        rules = {trust_core_touched.LIST_PATH.encode(): TRUST_CORE.read_bytes(),
+                 trust_core_touched.CHECK_TREE_PATH.encode(): CHECK_TREE.read_bytes(),
+                 b".github/actions/tree-paths/trust_core_touched.py": MATCHER.read_bytes()}
+        self.rules = rules
+        self.base = self.repo.commit(self.repo.tree(CLEAN, rules))
+        self.repo.git("update-ref", "refs/heads/main", self.base)
+        self.repo.git("remote", "add", "origin", self.repo.root)
+
+    def step_four(self, head_items):
+        head = self.repo.commit(self.repo.tree(head_items, self.rules), self.base)
+        self.repo.git("update-ref", "--no-deref", "HEAD", head)
+        for ref in ("refs/tags/origin/main", "refs/heads/origin/main"):
+            self.repo.git("update-ref", ref, head)
+        block = re.search(r"## Step 4 command\n```\n(.*?)```\n", STEP_FOUR.read_text(encoding="utf-8"), re.S)
+        drop = {"MSYS_NO_PATHCONV", "NODEFAULTCURRENTDIRECTORYINEXEPATH", "GIT_DIR"}
+        environment = {key: value for key, value in os.environ.items() if key.upper() not in drop}
+        result = subprocess.run([self.bash], input=block.group(1), cwd=self.repo.root, capture_output=True,
+                                text=True, check=False, env=environment)
+        return result.stdout.splitlines(), result.stderr
+
+    def test_names_that_shadow_main_do_not_change_the_result(self):
+        lines, stderr = self.step_four(CLEAN + [b"crates/grdr-crypto/src/lib.rs"])
+        self.assertEqual(lines, ["crates/grdr-crypto/src/lib.rs", "step 4: trust core"], stderr)
+
+    def test_a_change_outside_the_list_gives_no_trust_core_path(self):
+        lines, stderr = self.step_four(CLEAN + [b"docs/new.md"])
+        self.assertEqual(lines, ["step 4: no trust-core path"], stderr)
+
+    def test_the_matcher_refuses_a_short_name(self):
+        self.step_four(CLEAN + [b"docs/new.md"])
+        for args in (["--from-rev", "origin/main", "--paths", "x"],
+                     ["--from-rev", self.base, "--diff", "origin/main", "HEAD"]):
+            with self.subTest(args=args):
+                result = run_matcher(*args, cwd=self.repo.root)
+                self.assertEqual((result.returncode, result.stdout), (2, ""), result.stderr)
 
 
 class DiffModeTest(unittest.TestCase):

@@ -59,20 +59,25 @@ Your prompt names the issue `<n>`, its branch `issue/<n>` and your round, at mos
 ```
 bash <<'STEP4'
 set -euo pipefail
-export MSYS_NO_PATHCONV=1
+export MSYS_NO_PATHCONV=1 NoDefaultCurrentDirectoryInExePath=1
 trap 'echo "step 4: cannot-evaluate"; exit 2' ERR
-git fetch -q origin main
+git_dir=$(git rev-parse --absolute-git-dir)
+export GIT_DIR="$git_dir"
 work=$(mktemp -d)
 if command -v cygpath > /dev/null; then work=$(cygpath -m "$work"); fi
-matcher=origin/main:.github/actions/tree-paths/trust_core_touched.py
-git cat-file blob "$matcher" > "$work/matcher.py"
-test -s "$work/matcher.py"
-test "$(git hash-object --no-filters "$work/matcher.py")" = "$(git rev-parse --verify "$matcher")"
+cd "$work"
+git fetch -q --no-tags origin +refs/heads/main:refs/remotes/origin/main
+base=$(git rev-parse --verify --end-of-options 'refs/remotes/origin/main^{commit}')
+head=$(git rev-parse --verify --end-of-options 'HEAD^{commit}')
+matcher=$base:.github/actions/tree-paths/trust_core_touched.py
+git cat-file blob "$matcher" > matcher.py
+test -s matcher.py
+test "$(git hash-object --no-filters matcher.py)" = "$(git rev-parse --verify --end-of-options "$matcher")"
 python=$(for p in python3 python; do "$p" -I -c "import tomllib" > /dev/null 2>&1 && { echo "$p"; break; }; done)
 test -n "$python"
 status=0
 "$python" -I -B -X pycache_prefix="$work/pycache" "$work/matcher.py" \
-  --from-rev origin/main --diff origin/main HEAD || status=$?
+  --from-rev "$base" --diff "$base" "$head" || status=$?
 case "$status" in
   0) echo "step 4: no trust-core path" ;;
   1) echo "step 4: trust core" ;;
