@@ -1,0 +1,9 @@
+{
+  "about": "gh run list prints nothing for verify, which is not a list of runs, so CI cannot be judged",
+  "expect": "could not judge",
+  "answers": [
+    ["api repos/{owner}/{repo}/rules/branches/main", "cargo-deny\n"],
+    ["workflow list", "415167656\n"],
+    ["run list --workflow 415167656 --branch main --event push --limit 1", ""]
+  ]
+}
