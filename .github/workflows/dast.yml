@@ -52,7 +52,12 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: $/.github/actions/tree-paths
+      - id: toolchain
+        uses: $/.github/actions/tree-paths
+      - name: Write RUSTUP_TOOLCHAIN to GITHUB_ENV
+        env:
+          CHANNEL: ${{ steps.toolchain.outputs.channel }}
+        run: echo "RUSTUP_TOOLCHAIN=$CHANNEL" >> "$GITHUB_ENV"
       - id: pins
         uses: $/.github/actions/pins
         with:

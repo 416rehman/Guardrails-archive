@@ -4,7 +4,8 @@ python -I -m unittest discover -s .github/actions/tree-paths -p "test_pinned_too
 The oracles are rustup's documented toolchain file format (a [toolchain] table with channel,
 components, targets, profile or path), the real rust-toolchain.toml, and the workflows: every job
 that runs rustup or cargo, on a run line or through an action declared below, calls the pin action
-before its first such step, and that action is the only place the pin is read or installed.
+and writes its channel to GITHUB_ENV as RUSTUP_TOOLCHAIN before its first such step, and that
+action is the only place the pin is read or installed.
 """
 
 import pathlib
@@ -24,6 +25,9 @@ STEP_HEADER = re.compile(r"^      - ", re.M)
 USES = re.compile(r"^\s*(?:- )?uses: ([^@\s]+)", re.M)
 RUST_LINE = re.compile(r"(?:^|[\s;&|(])(?:rustup|cargo) ")
 PIN_ACTION = "$/.github/actions/tree-paths"
+PIN_ID = "id: toolchain"
+PIN_WRITE_ENV = "CHANNEL: ${{ steps.toolchain.outputs.channel }}"
+PIN_WRITE_RUN = 'run: echo "RUSTUP_TOOLCHAIN=$CHANNEL" >> "$GITHUB_ENV"'
 STEP_PIN = "RUSTUP_TOOLCHAIN: ${{ env.RUSTUP_TOOLCHAIN }}"
 
 # Every action the workflows use, and whether it runs rustup or cargo. An action missing here fails
@@ -182,8 +186,12 @@ class WorkflowTest(unittest.TestCase):
             with self.subTest(job=f"{workflow} {job}"):
                 rust = [at for at, step in enumerate(steps) if runs_rust(step)]
                 pins = [at for at, step in enumerate(steps) if step_action(step) == PIN_ACTION]
-                self.assertTrue(pins, steps)
-                self.assertTrue(all(pins[0] < at for at in rust), steps)
+                writes = [at for at, step in enumerate(steps) if PIN_WRITE_RUN in step]
+                self.assertEqual(len(pins), 1, steps)
+                self.assertEqual(writes, [pins[0] + 1], steps)
+                self.assertIn(PIN_ID, steps[pins[0]])
+                self.assertIn(PIN_WRITE_ENV, steps[writes[0]])
+                self.assertTrue(all(writes[0] < at for at in rust), steps)
                 for step in steps:
                     if step_action(step) in CONTAINER_ACTIONS:
                         self.assertIn(STEP_PIN, step)
@@ -193,10 +201,12 @@ class WorkflowTest(unittest.TestCase):
             for step in steps:
                 self.assertNotIn("pinned_toolchain.py", step, f"{workflow} {job}")
                 self.assertNotIn("rustup toolchain install", step, f"{workflow} {job}")
-                self.assertNotIn("RUSTUP_TOOLCHAIN=", step, f"{workflow} {job}")
+                if "RUSTUP_TOOLCHAIN=" in step:
+                    self.assertIn(PIN_WRITE_RUN, step, f"{workflow} {job}")
         action = PIN_ACTION_FILE.read_text(encoding="utf-8")
-        self.assertIn('pinned_toolchain.py" rust-toolchain.toml >> "$GITHUB_ENV"', action)
-        self.assertIn('rustup toolchain install "$RUSTUP_TOOLCHAIN"', action)
+        self.assertIn('pinned_toolchain.py" rust-toolchain.toml >> "$GITHUB_OUTPUT"', action)
+        self.assertIn('rustup toolchain install "$CHANNEL"', action)
+        self.assertNotIn("GITHUB_ENV", action.partition("\nruns:\n")[2])
 
 
 if __name__ == "__main__":

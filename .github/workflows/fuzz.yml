@@ -50,9 +50,14 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: $/.github/actions/tree-paths
+      - id: toolchain
+        uses: $/.github/actions/tree-paths
         with:
           install: "false"
+      - name: Write RUSTUP_TOOLCHAIN to GITHUB_ENV
+        env:
+          CHANNEL: ${{ steps.toolchain.outputs.channel }}
+        run: echo "RUSTUP_TOOLCHAIN=$CHANNEL" >> "$GITHUB_ENV"
       - uses: google/clusterfuzzlite/actions/build_fuzzers@884713a6c30a92e5e8544c39945cd7cb630abcd1 # v1
         env:
           RUSTUP_TOOLCHAIN: ${{ env.RUSTUP_TOOLCHAIN }}
