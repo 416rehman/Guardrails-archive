@@ -6,20 +6,17 @@ Model: claude-opus-5-5
 State: Draft
 Design issue: #1848
 Spine: D-06, D-51, D-60, D-61, D-63, D-66, P8, P14, P16, P17 (no spine text changes)
-Surfaces: the new protobuf package `grdr.common.v1alpha1` (experimental): `proto/grdr/common/v1alpha1/options.proto` with the enums `DataClass` and `ContentKind` and five descriptor-option extensions; `buf.yaml`; the committed descriptor set `crates/grdr-proto/descriptors/proto.binpb` of the public crate `grdr-proto`; optional dependencies of `grdr-proto` behind the features `sp1-buffa` and `sp1-prost`. As proposals: two data files of `grdr-schema` (`capture.toml`, `reclassifications.toml`), design/04 sections 1, 10, 11 and 13, one `[[proto_package]]` row of `surfaces.toml`, and two lines of `security/trust-core.paths`
+Surfaces: the new protobuf package `grdr.common.v1alpha1` (experimental): `proto/grdr/common/v1alpha1/options.proto` with the enums `DataClass` and `ContentKind` and five descriptor-option extensions; `buf.yaml`; the committed descriptor set `crates/grdr-proto/descriptors/proto.binpb` of the public crate `grdr-proto`; optional dependencies of `grdr-proto` behind the features `sp1-buffa` and `sp1-prost`. As proposals: two data files of `grdr-schema` (`capture.toml`, `reclassifications.toml`), two line forms an RFC uses to decide a reclassification or a release, design/04 sections 1, 10, 11 and 13, one `[[proto_package]]` row of `surfaces.toml`, and four lines of `security/trust-core.paths`
 Decision record: none yet
 
 To comment, write on issue #1848 of this repository; you need no account on any service other than the code host. A security fix under embargo (D-62) may change a public surface without an RFC; open a retroactive RFC when the fix is disclosed.
 
-This is revision 2. It answers round 1's `eval-architecture` verdict (https://github.com/416rehman/Guardrails/issues/1848#issuecomment-7072892832), and requirement numbers changed from revision 1:
-- M1 is R6 and SL10: the options package comes from each file's import, so no reader holds a version.
-- M2 is R13, SL12 and SL13: class ranks and the capture matrix are one data file, and a check against the base registry fails a reclassification.
-- M3 is R18, R19 and R23: module blocks are forbidden, negative controls run against the real module, and the first `buf.yaml` lands with its trust-core lines in a gate item.
-- M4 is R16 and SL11: `surfaces.toml` is the only source of the class.
-- m1: `encoding` is dropped (R14). m2 is R10 and R11, m3 is R26, m4 is R28 and R31, m5 is R14, and m6 is R4, R5, R13 and R14.
+This is revision 3. Revision 2 answered round 1's `eval-architecture` verdict (https://github.com/416rehman/Guardrails/issues/1848#issuecomment-7072892832). Round 2's delta verdict (https://github.com/416rehman/Guardrails/issues/1848#issuecomment-7073095604) closed M1, M3, M4 and m1 to m6, and raised N1 and n1 to n4. Revision 3 answers them:
+- N1 is R13, R17, R19 and SL12. SL12 reads ranks and levels from the base `capture.toml` and fails a level that releases a class the base held back. A record counts only when an RFC accepted on the base carries the same decision line (R17). Both data files are trust core.
+- n1 is SL10, n2 is R13, n3 is R31, and n4 is in Alternatives. R19 states that the gate item's own criteria are fresh-copy runs.
 
 ## Summary
-The first `proto/` change is one file, `proto/grdr/common/v1alpha1/options.proto`. It holds two closed enums, `DataClass` and `ContentKind`, and the five options #353 needs: `data_class` on every field, `content_kind`, `policy_readable`, `sealable`, and `wire_name` on every enum value. Tools find the options package from each file's import and read options by full name, so neither the version nor the option numbers are literals. The capture-level matrix and the rank of each class are one data file. A check against the base registry fails any field that moves to a lower class without a recorded RFC. The package is experimental, and `surfaces.toml` is the only source of that class. `buf` gates it under WI-0014's rules W1 to W5, and its configuration lands as trust core with negative controls run against the real module. For SP-1 (#360), `grdr-proto` gains `buffa`, `buffa-types` and `buffa-build` 0.9.2 behind `sp1-buffa`, and `prost`, `prost-types` and `prost-build` 0.14.6 behind `sp1-prost`. `grdr-schema-lint` decodes descriptors with `buffa-descriptor` 0.9.2.
+The first `proto/` change is one file, `proto/grdr/common/v1alpha1/options.proto`. It holds two closed enums, `DataClass` and `ContentKind`, and the five options #353 needs: `data_class` on every field, `content_kind`, `policy_readable`, `sealable`, and `wire_name` on every enum value. Tools find the options package from each file's import and read options by full name, so neither the version nor the option numbers are literals. The capture-level matrix and the rank of each class are one trust-core data file. A check against the base fails any field that moves to a lower class, and any level that releases a class, unless an RFC accepted on the base carries that exact decision line. The package is experimental, and `surfaces.toml` is the only source of that class. `buf` gates it under WI-0014's rules W1 to W5, and its configuration lands as trust core with negative controls run against the real module. For SP-1 (#360), `grdr-proto` gains `buffa`, `buffa-types` and `buffa-build` 0.9.2 behind `sp1-buffa`, and `prost`, `prost-types` and `prost-build` 0.14.6 behind `sp1-prost`. `grdr-schema-lint` decodes descriptors with `buffa-descriptor` 0.9.2.
 
 ## Motivation
 - #353 cannot open its pull request without an RFC line: the package is a wire format (D-61; the #17-E1 decision on #17).
@@ -70,11 +67,23 @@ enum ContentKind {
 - R10. `options.proto` is the one source of the class names. Every tool under `crates/` that reads classes reads the committed descriptor set, `capture.toml` (R13) or a file generated from them: the field registry (`crates/grdr-schema/registry/fields.json`, #386 R4), the capture filter generator (04-16), the lake column manifest, the Cedar schema and the pack validator. The one other list is the `DataClass` enum of RFC 0004's `grdr-cabi-testkit`, which R11 holds to `capture.toml`.
 - R11. The five commitment classes of design/04 section 10 are named from the wire names: `identifier`, `structural`, `derived`, `content.argument` and `content.body`. That spelling is the one `envelope.withheld`, the registry and every export use. RFC 0004's testkit describes C fields with five classes of its own (`Identifier`, `Structural`, `Derived`, `ContentArgument`, `ContentBody`). A test in the testkit, filed on acceptance, reads `capture.toml` and fails unless the testkit renders its five classes as exactly the five names there. That fixes a spelling RFC 0004 left open; no header exists yet, so no header text changes. This RFC does not change what RFC 0004 section 10 leaves to review: whether a C field's class is the right one.
 - R12. A zero value carries no `wire_name` and is never rendered. A zero or undeclared value of a closed enum, read where a value is required, is a finding or an error, never a default. A `data_class` number the enum does not declare is SL01.
-- R13. `crates/grdr-schema/capture.toml` is design/04 section 11's matrix as data, with the rank of each class. SL12, SL13, the 04-16 filter generator, the pack validator's class ceiling and R11's testkit test read it, and none keeps its own copy (P14, P17). It changes only by RFC: it decides what leaves the device. Its content:
+- R13. `crates/grdr-schema/capture.toml` is design/04 section 11's matrix as data, with the rank of each class. SL12, SL13, the 04-16 filter generator, the pack validator's class ceiling and R11's testkit test read it, and none keeps its own copy (P14, P17). It decides what leaves the device, so it is a trust-core path (R19), and SL12 fails a change that releases anything the base held back unless an accepted RFC decided it (R17). Its content:
 
 ```toml
-# design/04 section 11 as data. A higher rank is more sensitive. Changes only by RFC.
-classes = ["structural", "derived", "identifier", "content.argument", "content.body"]
+# design/04 section 11 as data. Rank is table order: later is more sensitive.
+# pseudonymous: a value that identifies a human principal appears in this class only as a
+# pseudonym, at every level (P8, D-51). Changes only through an RFC's decision lines (RFC 0006 R17).
+[[class]]
+name = "structural"
+[[class]]
+name = "derived"
+[[class]]
+name = "identifier"
+pseudonymous = true
+[[class]]
+name = "content.argument"
+[[class]]
+name = "content.body"
 
 [[level]]
 name = "metadata"
@@ -92,17 +101,32 @@ name = "full content"
 ships = ["structural", "derived", "identifier", "content.argument", "content.body"]
 ```
 
-  The rank is the position in `classes`, which orders the three metadata classes as well. `identifier` ranks above `derived` because an identifier joins records across events and back to a principal, device or artefact (D-51), while a derived value describes one event. `structural` ranks lowest because it describes shape only.
+  The rank is the position of a `[[class]]` table, which orders the three metadata classes as well. `pseudonymous` is a property of the class, not of a level, because D-51's two pseudonymisation layers apply wherever an identifier travels. `identifier` ranks above `derived` because an identifier joins records across events and back to a principal, device or artefact (D-51), while a derived value describes one event. `structural` ranks lowest because it describes shape only.
 - R14. Left to the RFC of the first item that adds a message field (#18, 04-5): an `encoding` option for bytes fields with its values (`Receipt.decision`, `native` and `Redaction.original` among the cases it is checked against), the data file that names each digest's `<alg>` label, and the class of a field whose type is a message. The capture filter and the class-digest walk read leaf classes only (design/04 sections 10 and 11), so nothing in this RFC reads a message-typed field's own class.
 
 ### 4. Stability
 - R15. `grdr.common.v1alpha1` is experimental: nothing is stable before one external embed pilot completes (D-60). Its class lives in one `[[proto_package]]` row of `surfaces.toml` with the keys `package` and `class`, each a double-quoted value on its own line, the rule RFC 0004 section 2 sets for `[[c_header]]` rows (ADR-0020). `package` is the name below the namespace (`common.v1alpha1`), so a namespace rename edits no row (04-4).
 - R16. `surfaces.toml` is the only source of a package's class. No option carries stability, per field or per file. The version suffix follows design/04's own naming: `v1alpha1` until the freeze, `v1` after it (04-29). A `v1` package may stay experimental, as D-60 and ADR-0020 allow. SL11 keeps the one rule that needs no second statement: a row whose class is `stable` names no package with an unstable suffix.
-- R17. During `v1alpha1`, `buf breaking` uses `WIRE_JSON`, and the freeze switches it to `FILE` (design/04 section 13). Every change to `proto/**` names an accepted RFC (D-61; `rfc-required`, #1741 R1). `buf breaking` reads no options, so SL12 holds reclassification: a field that moves to a lower-ranked class, or disappears, fails unless `crates/grdr-schema/reclassifications.toml` records it with the RFC that decided it.
+- R17. During `v1alpha1`, `buf breaking` uses `WIRE_JSON`, and the freeze switches it to `FILE` (design/04 section 13). Every change to `proto/**` names an accepted RFC (D-61; `rfc-required`, #1741 R1). `buf breaking` reads no options, and naming any accepted RFC proves nothing about a class, so SL12 holds two kinds of release to a decision:
+  - a **reclassification**: a field that moves to a lower-ranked class, or disappears;
+  - a **level release**: a capture level that ships or redacts a class the base `capture.toml` withheld there, or ships one the base only redacted, or a class that loses `pseudonymous`.
+
+  Each needs a record in `crates/grdr-schema/reclassifications.toml`, as `[[field]]` with `path`, `from`, `to` and `rfc`, or as `[[level]]` with `level`, `class`, `from`, `to` and `rfc`. A record counts only when `rfcs/<rfc>-*.md` on the pull request's base reads `Accepted` or `Implemented` and holds, in its "Surfaces changed" section and outside any fence, the decision line with the same values:
+
+  `reclassify path="<field path>" from="<class>" to="<class>"`
+
+  `release level="<capture level>" class="<class>" from="<withheld|redacted|pseudonymous>" to="<redacted|ships|plain>"`
+
+  For the `pseudonymous` property, `level` is `all`. That is #1741 R2's base-read rule applied to the record, so a pull request cannot excuse its own change. The line sits in "Surfaces changed", not in "Decision", because RFC 0001's "Review binds the decision" lets the Decision section change after review and the reviewed text must hold the line. A change to the order or the set of classes, which SL13 ties to `options.proto`, is outside both forms: SL12 fails it, and it needs an RFC that amends this rule.
 
 ### 5. How `buf` gates it
 - R18. `buf.yaml` at the repository root is `version: v2`, with lint `use: [STANDARD]`, `disallow_comment_ignores: true` and breaking `use: [WIRE_JSON]`, all at the top level. Its one module entry has `path: proto` and nothing else: `buf` replaces the top-level `lint` or `breaking` block in its entirety with a module's own block (buf.yaml v2 reference, https://buf.build/docs/configuration/v2/buf-yaml/, read 2026-11-21). It has no `except`, `ignore`, `ignore_only`, `ignore_unstable_packages` or `disable_builtin` key. `ignore_unstable_packages` alone would skip every `v1alpha1` package, and without `disallow_comment_ignores` a `// buf:lint:ignore` comment in any `.proto` file switches a rule off.
-- R19. The first `buf.yaml`, the fixtures under `schema/fixtures/buf/**` and the two `security/trust-core.paths` lines for both land in one gate item, worked by `lead-agent-kit` with the trust-core lane (AGENTS.md, gate configuration; D-63). #353 waits on it and writes neither.
+- R19. One gate item, worked by `lead-agent-kit` with the trust-core lane (AGENTS.md, gate configuration; D-63), lands:
+  - the first `buf.yaml` and the fixtures under `schema/fixtures/buf/**`;
+  - `crates/grdr-schema/capture.toml` as R13 gives it, and an empty `crates/grdr-schema/reclassifications.toml`, the exemption file of R17;
+  - four `security/trust-core.paths` lines: `**/buf.yaml`, `schema/fixtures/buf/**`, `crates/grdr-schema/capture.toml` and `crates/grdr-schema/reclassifications.toml`. The glob form follows the deny configuration's lines, so a nested `buf.yaml` is trust core too.
+
+  No `proto/` exists on `main`, so the item's own criteria are R23's fresh-copy runs, never a root `buf lint`. #353 waits on it and writes none of these files.
 - R20. `buf` runs only as a plain command, in a session or in the `proto` job of `verify.yml` (#1842), at the version `[tool.buf]` of `supply-chain/build-tools.toml` pins (#1697). It runs offline: no registry dependency, no remote plugin and no login (#1697 condition 3). `cargo test --workspace --locked` never runs `buf` or `protoc` (W1).
 - R21. Rust reads committed descriptor sets only (W2). `crates/grdr-proto/descriptors/proto.binpb` is the output of `buf build proto --as-file-descriptor-set --exclude-source-info -o crates/grdr-proto/descriptors/proto.binpb`. It keeps its imports, because a descriptor pool needs `google/protobuf/descriptor.proto` to read options by name, so the command never takes `--exclude-imports`. Every change to `proto/` regenerates it in the same pull request.
 - R22. CI rebuilds every committed set and golden vector and fails on any byte difference (W3; #1842 R5 to R7).
@@ -161,7 +185,7 @@ crate = "buffa-descriptor"
 purpose = "grdr-schema-lint decodes committed descriptor sets and reads custom options by full name (#386, RFC 0006 R6 and R26)"
 why_not_std = "std decodes no protobuf; prost-types drops custom options with every unknown field; a decoder of our own would be a second protobuf decoder (P17)"
 maintainers = ["iainmcgin"]
-maintainer_risk = "one owner account, pre-1.0; it reaches only grdr-schema-lint, a tool crate no shipped crate may depend on (ARCH-001), and the lint's tests read the repository's own set, so a decoding defect fails them"
+maintainer_risk = "one owner account, pre-1.0; it reaches grdr-schema-lint, a tool crate no shipped crate may depend on (ARCH-001), and the sp1-buffa build script of grdr-proto through buffa-codegen; it is linked into no shipped program, and the lint's tests read the repository's own set, so a decoding defect fails them"
 unsafe = "none: no unsafe block, function or impl in src/ by a text search"
 build_script = "none"
 proc_macro = "none; it depends on the rustversion proc macro"
@@ -183,10 +207,10 @@ What was run, on a probe manifest with R24's dependencies and the repository's `
 Filed on acceptance as one `grdr-schema-lint` item, which blocks #18.
 | Id | Fails when |
 |---|---|
-| SL10 | A descriptor-option extension is declared outside the options files of a `<namespace>.common.<version>` package, or an options file declares a message. Also when a file of the namespace that declares a message imports the options files of no such package, or of more than one version. An option from any other package does not count, so the field then fails SL01 |
+| SL10 | A descriptor-option extension is declared outside the options files of a `<namespace>.common.<version>` package, or an options file declares a message. Also when a file of the namespace other than the options files, enum-only files included, imports the options files of no such package, or of more than one version. An option from any other package does not count, so the field or value then fails SL01 or SL04 |
 | SL11 | A package of the namespace has no `[[proto_package]]` row or more than one, or a `stable` row names a package whose last segment is unstable as buf's `PACKAGE_VERSION_SUFFIX` rule reads it (`alpha`, `beta`, `test`) |
-| SL12 | `registry --check --against <base fields.json>`: a field present in the base is absent at head, or its class at head ranks lower in `capture.toml`, with no matching entry in `reclassifications.toml` (path, from, to, RFC number). Also when an option of the base registry is missing at head or its number names another option. The registry gains an `options` section (name, number, extendee). With no base registry it prints that and exits 0 |
-| SL13 | `capture.toml`'s `classes` are not exactly the five names R11 derives from the `DataClass` and `ContentKind` wire names, or a level ships or redacts a class while withholding one of lower rank |
+| SL12 | `registry --check --against <base dir>`, where the base dir holds the base's `fields.json`, `capture.toml` and `rfcs/`. Ranks and levels are read from the base `capture.toml`, never the head's. It fails on a reclassification or a level release (R17) without a record that counts. It fails when the head `capture.toml` changes the order or set of classes. It fails when an option of the base registry is missing at head, or its number names another option; the registry gains an `options` section (name, number, extendee). With no base `fields.json` or no base `capture.toml` it prints which is missing and exits 0 |
+| SL13 | `capture.toml`'s classes are not exactly the five names R11 derives from the `DataClass` and `ContentKind` wire names, or a level ships or redacts a class while withholding one of lower rank |
 
 ### 8. Mechanisms
 | Decision | Mechanism | Built by |
@@ -195,13 +219,14 @@ Filed on acceptance as one `grdr-schema-lint` item, which blocks #18.
 | Zero values have no `wire_name`; every other value has a unique one | SL04, amended to exempt zero values | #386 |
 | The options package comes from the import; options only in options files | SL10, and a fixture whose options package is `v1` beside one at `v1alpha1` | Filed on acceptance |
 | `surfaces.toml` is the only source of the class | SL11, and the `[[proto_package]]` row | Filed on acceptance (two items) |
-| No field moves to a lower class, and no option number is reused, without a record | SL12 in the CI lint steps, with a seeded downgrade fixture | Filed on acceptance; #1843 runs it |
-| Class ranks and the capture matrix have one home | `capture.toml`; SL13; R11's testkit test | Filed on acceptance (lint item; testkit test) |
+| No field moves to a lower class, no level releases a class, and no option number is reused, without a decision an RFC accepted on the base holds | SL12 in the CI lint steps, reading the base `capture.toml` and `rfcs/`. Seeded fixtures that must fail: a downgrade whose record cites an accepted RFC without the line; a downgrade whose RFC holds the line but reads `Draft`; `metadata` gaining `content.argument` with no record; `identifier` losing `pseudonymous`. One that must pass: a downgrade whose accepted RFC holds the line | Filed on acceptance; #1843 runs it |
+| Class ranks and the capture matrix have one home | `capture.toml`; SL13; R11's testkit test | The gate item creates the file; filed on acceptance (lint item; testkit test) |
+| `capture.toml` and the record file change only with the full lane | Two `security/trust-core.paths` lines | The gate item |
 | Option numbers leave the in-house range together | SL09 | #398 |
 | A renumbered field, a reused enum value or a comment ignore fails under the real module's configuration | R23's fixtures, run in a fresh copy | The gate item; #1842 R4 |
 | Committed sets and vectors are fresh | Rebuild and byte compare, with a stale-set negative control | #1842 R5 to R7 |
 | `buf.yaml` and its fixtures change only with the full lane | Its first text and two `security/trust-core.paths` lines in one gate item | Filed on acceptance (lead-agent-kit) |
-| Every `proto/**` change names an accepted RFC; `capture.toml` changes only by RFC | `rfc-required`, with an entry for `capture.toml` in `governance/rfc-required.toml` | #1741 |
+| Every `proto/**` and `crates/grdr-schema/**` change names an accepted RFC | `rfc-required` (`grdr-schema` is a layer 0 public crate) | #1741 |
 | `grdr-proto` has exactly R24's crates, licences in the class, no `protoc` | #360 AC-1 to AC-4, `cargo deny check`, the admission row | #360 |
 | The losing codec's crates leave `Cargo.lock` | The item that makes SP-1's winner the crate's codec | #368's decision record files it |
 
@@ -209,11 +234,11 @@ Filed on acceptance as one `grdr-schema-lint` item, which blocks #18.
 Each lands through an item whose write set names its file, filed on acceptance.
 - **design/04 section 1.** The code block becomes `options.proto` as sections 2 and 3 give it. The naming rules gain: `proto3` for every `v1alpha1` file; descriptor-option extensions only in options files; the options package taken from the import (R6); zero values without a `wire_name`.
 - **design/04 section 10.** The commitment classes are spelt `content.argument` and `content.body`, as `withheld` already does.
-- **design/04 section 11.** The matrix points to `crates/grdr-schema/capture.toml` as its data and states R13's rank.
-- **design/04 section 13.** The check table gains SL10 to SL13, and its wire-compatibility row names the reclassification check.
+- **design/04 section 11.** The matrix points to `crates/grdr-schema/capture.toml` as its data, states R13's rank, and states that pseudonymity is a property of the `identifier` class at every level.
+- **design/04 section 13.** The check table gains SL10 to SL13, and its wire-compatibility row names the reclassification and level-release check.
 - **`surfaces.toml`.** `[[proto_package]]` with `package = "common.v1alpha1"` and `class = "experimental"`, created by whichever of this item and #1817 lands first.
-- **`security/trust-core.paths`.** `buf.yaml` and `schema/fixtures/buf/**`, in the gate item of R19.
-- **`governance/rfc-required.toml`.** An entry for `crates/grdr-schema/capture.toml`, through #1741.
+- **`security/trust-core.paths`.** The four lines of R19, in the gate item.
+- **`rfcs/0000-template.md`.** Its "Surfaces changed" note names R17's two decision lines, through #1819.
 
 ### 10. What each item changes
 This RFC is normative. Each lead writes these changes back into its item before readying it.
@@ -223,15 +248,15 @@ This RFC is normative. Each lead writes these changes back into its item before 
 - **#368.** No change. If prost wins, its decision record may propose an amendment of this RFC to move the lint to `prost-reflect` (R26).
 - **#398.** Moves 50001 to 50004 and 50011 together (R5).
 - **#1842.** R4 runs R23's cases in a fresh copy of the checkout under `proto/`, breaking and lint cases both, and AC-2 and AC-3 follow. It waits on the gate item.
-- **#1843.** It gains the SL12 step: `git show <base>:crates/grdr-schema/registry/fields.json` into a temporary file, then `grdr-schema-lint registry --check --against` that file.
+- **#1843.** It gains the SL12 step. `git archive <base> crates/grdr-schema/registry/fields.json crates/grdr-schema/capture.toml rfcs` is unpacked into a temporary base dir, then `grdr-schema-lint registry --check --against` reads that dir.
 
 Filed on acceptance, each citing this RFC and its decision record:
-- the gate item of R19: the first `buf.yaml`, the four fixture cases and the two `security/trust-core.paths` lines (lead-agent-kit, trust core, blocked by #1697, blocking #353 and #1842);
+- the gate item of R19: the first `buf.yaml`, the four fixture cases, `capture.toml`, the empty `reclassifications.toml` and the four `security/trust-core.paths` lines (lead-agent-kit, trust core, blocked by #1697, blocking #353, #1842 and the lint item). Its criteria are R23's fresh-copy runs and a byte comparison of `capture.toml` with R13;
 - the `[[proto_package]]` row of `surfaces.toml`, a protected trust-core change (chief-architect);
-- `grdr-schema-lint` SL10 to SL13, with `capture.toml`, an empty `reclassifications.toml`, the registry's `options` section and their fixtures (squad core, blocked by #386 and the row item, blocking #18);
+- `grdr-schema-lint` SL10 to SL13, the registry's `options` section and their fixtures (squad core, blocked by #386, the gate item and the row item, blocking #18);
 - R11's test in `grdr-cabi-testkit` (squad core, blocked by #1778 and the lint item);
 - the design/04 amendments of section 9 (chief-architect);
-- a comment on #1741 asking for the `capture.toml` entry.
+- a comment on #1819 asking for R17's two decision lines in the template.
 
 ### 11. Failure modes
 | Failure | Outcome | Visible as |
@@ -239,7 +264,7 @@ Filed on acceptance, each citing this RFC and its decision record:
 | The pinned `buf` refuses an option used in its own file | #353 takes section 1's fallback | #353's hand-off |
 | A file's options package is missing from the set, or its namespace differs from the manifest's | The lint exits 2 with its code; it never reports `Clean` | stderr and the CI step |
 | A `data_class` number the enum does not declare | SL01 at that field | The lint's finding |
-| A field moves to a lower class without a record | SL12 fails, naming the field and both classes | The CI lint step |
+| A field moves to a lower class, or a level releases a class, without a record an RFC accepted on the base holds | SL12 fails, naming the field or level, both values and the missing decision line | The CI lint step |
 | A configuration change makes a fixture case pass | R23's step fails, naming the case | Job log |
 | A committed descriptor set or vector is stale | #1842 R5 or R6 fails, naming the file and the rebuild command | Job log |
 | A codec's build script needs `protoc` or `buf` | #360 or #368 stops `blocked` (W2) | The hand-off |
@@ -249,18 +274,21 @@ Filed on acceptance, each citing this RFC and its decision record:
 - The new protobuf package `grdr.common.v1alpha1`, experimental: `options.proto` with the enums and extensions of sections 2 and 3. It defines no message, so no event changes.
 - `buf.yaml`, and the committed descriptor set in `grdr-proto`, a public layer 0 crate whose class is experimental.
 - `grdr-proto` gains optional dependencies behind two features that are not defaults. The default build and its closure are unchanged.
-- As proposals: `crates/grdr-schema/capture.toml` and `reclassifications.toml`, design/04 sections 1, 10, 11 and 13, a `surfaces.toml` row, two `security/trust-core.paths` lines and a `governance/rfc-required.toml` entry. No spine text, pinned path, Cedar schema, licence policy or same-layer edge changes.
+- As proposals: `crates/grdr-schema/capture.toml` and `reclassifications.toml`, R17's two decision lines, design/04 sections 1, 10, 11 and 13, a `surfaces.toml` row and four `security/trust-core.paths` lines. No spine text, pinned path, Cedar schema, licence policy or same-layer edge changes.
+- This RFC reclassifies no field and releases no class, so it carries no decision line of R17.
 
 Data classes (P8): this RFC adds the class mechanism and no data field. The lint and the build scripts read schema descriptors and data files only, which are `structural`, and log no event data. Assurance effect (P1): none. No action class changes `visibility`, `control`, `on_failure` or `tamper`.
 
 ## Alternatives
 - **Two files, `options.proto` and `data_class.proto` (#353 as written).** An import cycle. Rejected for one file.
 - **The options package as a literal in each reader (revision 1).** It breaks at the freeze and cannot serve N and N-1 at once. Rejected for R6.
-- **The options package as a key of the `[[proto_package]]` row.** It works, but it is a second statement of what the import already says, and #386 would depend on `surfaces.toml`. Rejected for the import.
+- **The options package as a key of the `[[proto_package]]` row.** It works, but it is a second statement of what the import already says. Rejected for the import.
 - **The stability class stated by the suffix and the row, held equal by SL12 (revision 1).** Two sources, and it forbids an experimental `v1`, which D-60 and ADR-0020 allow. Rejected for SL11's one-way rule.
 - **A per-field or per-file `stability` option.** A second source beside `surfaces.toml` (ADR-0020, P17). Rejected.
 - **`encoding` now (revision 1).** #353 and #360 have no bytes field, and a closed set fixed now would have to fit `Receipt.decision`, `native` and `Redaction.original` unseen. Deferred to #18's RFC (R14).
 - **Reclassification held by reading the registry diff (revision 1).** Any accepted RFC satisfies `rfc-required`, so a downgrade passes every check. Rejected for SL12.
+- **A record that cites any RFC number (revision 2).** The pull request that downgrades a field can write its own excuse, and nothing compared `capture.toml` with its base. Rejected for R17's decision lines read from the base, and for trust-core data files.
+- **Matching a record to an RFC that merely mentions the path.** A mention is not a decision, and an RFC may discuss a field it rejects reclassifying. Rejected for an exact line.
 - **Editions instead of `proto3`.** Both SP-1 candidates would have to generate them, and design/04's rules are written in `proto3` terms. Deferred to an RFC.
 - **`prost-reflect` 0.16.5 as the lint's decoder** (MIT OR Apache-2.0, owner `andrewhickman`; `DescriptorPool::decode` keeps extension options; read 2026-11-21 on docs.rs). It works and adds one package. If buffa wins, design/04's first choice, it would keep the prost crates in the lockfile for a tool crate alone, while `buffa-descriptor` costs nothing. It is the decoder an amendment would name (R26).
 - **`prost-types` alone.** It drops custom options with every other unknown field, so it cannot read `data_class`. Rejected.
@@ -277,8 +305,9 @@ Sources, all read 2026-11-21: the crates.io API and sparse index for every crate
 - A spike locks 63 packages, which stay until the adopting item removes the losing codec's crates.
 - buffa is pre-1.0, and one crates.io account owns six of the crates. The lint depends on it even if prost wins, unless an amendment moves it. If buffa wins, the gate's decoder and the codec generator share one crate, so a decoding defect is common to both. `buf` stays the independent producer of the sets.
 - The option numbers stay in the in-house range until a third party grants a registered one (#398).
-- A reclassification needs a recorded entry beside its RFC, and a retired option keeps its declaration.
-- `buf.yaml` and its fixtures become trust core, so a rule change takes the full lane, and #353 waits on the gate item.
+- A reclassification or a level release needs a decision line in an accepted RFC and a record beside it, and a retired option keeps its declaration.
+- SL12 trusts the text of an accepted RFC on the base. An edit that adds a decision line to an RFC already accepted is out of route; review of `rfcs/**` holds it, not SL12.
+- `buf.yaml`, its fixtures, `capture.toml` and the record file become trust core, so a change to any of them takes the full lane, and #353 waits on the gate item.
 - The negative controls need a fresh copy of the checkout per case.
 
 ## Unresolved questions
@@ -292,11 +321,11 @@ Sources, all read 2026-11-21: the crates.io API and sparse index for every crate
    - `buffa-descriptor`'s reading of custom options was read in its published source, not run.
 
 ## Review
-Round 2's lane, set by the session:
-- `eval-architecture` on the delta from revision 1;
+Round 3, the last, set by the session:
+- `eval-architecture` on the delta from revision 2;
 - `eval-security`;
 - `eval-adversarial`, bounded to the seeds below;
-- persona council seats 3 (`persona-soc-analyst`: wire names and class names in exports), 5 (`persona-oem-partner`: embedding, the stability class and the option numbers) and 6 (`persona-privacy-officer`: data classes, the capture matrix and ranks, and reclassification).
+- persona council seats 3 (`persona-soc-analyst`: wire names and class names in exports), 5 (`persona-oem-partner`: embedding, the stability class and the option numbers) and 6 (`persona-privacy-officer`: data classes, the capture matrix and ranks, `pseudonymous`, and reclassification).
 
 Each puts one comment on #1848. Each comment opens with the blobs it read, one per line:
 - `rfc-file=<blob of rfcs/0006-grdr-common-v1alpha1-options-and-sp1-crates.md at the commit reviewed>`;
@@ -307,6 +336,9 @@ A comment without these lines does not count. This RFC changes no pinned path, s
 
 Round 1, on blob `b9f2b99aa9f46dffbeacd71f0a2c9deeddcccb22`:
 - `eval-architecture` (Sonnet): fail, four majors and seven minors. https://github.com/416rehman/Guardrails/issues/1848#issuecomment-7072892832
+
+Round 2, on blob `a916eaaa12f51817ce999fd5c6e17a017f340a2f`:
+- `eval-architecture` (Opus, delta): fail, one major and four minors. https://github.com/416rehman/Guardrails/issues/1848#issuecomment-7073095604
 
 This text was written against these blobs, on `main` unless named:
 - `docs/design/04-event-model-and-schemas.md`: `e77880a12d2f42e715836a6da9598b86f33b20b0`;
@@ -328,7 +360,9 @@ This text was written against these blobs, on `main` unless named:
 - A8. A build script that can reach `protoc` or `buf`.
 - A9. A `stable` row over a `v1alpha1` package.
 - A10. A module-level `lint` or `breaking` block, `ignore_unstable_packages`, or a `// buf:lint:ignore` comment.
-- A11. A file that imports the options files of two versions.
+- A11. A file that imports the options files of two versions, an enum-only file among them.
+- A12. A level of `capture.toml` that gains a class, or `identifier` losing `pseudonymous`, in a change that names some accepted RFC.
+- A13. A record whose cited RFC holds the decision line only at head, only in its Decision section, or with other values.
 
 ## Decision
 Not decided.
