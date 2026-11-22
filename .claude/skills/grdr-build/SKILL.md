@@ -27,7 +27,7 @@ Each layer an epic names has a lead: endpoint `lead-endpoint`, with `lead-window
 
 ## One iteration
 
-1. **Check the stop conditions** (below). If one holds, stop and report it. Then check the branches against the owner's rule, one issue, one branch `issue/<n>`, one pull request (`grdr-work-issue`, "Branches and pull requests"): run `node .claude/hooks/branch-check.mjs`. It is clean only with exit 0 and a last line `branch-check: <owner/repo>: ... findings: 0.`. On exit 1, repair each finding as that section's table says before picking new work. Its `info:` lines about fork pull requests need nothing and never stop the loop.
+1. **Check the stop conditions** (below). If one holds, stop and report it. Then check the branches against the owner's rule, one issue, one branch `issue/<n>`, one pull request (`grdr-work-issue`, "Branches and pull requests"): run `node .claude/hooks/branch-check.mjs` and read it by its last line, as that section says. It is clean only with exit 0 and the summary `branch-check: <owner/repo>: ... findings: 0.` as the last line. It has findings only with exit 1 and the summary as the last line: repair each `finding:` line as that section's table says before picking new work. Its `info:` lines about fork pull requests need nothing and never stop the loop.
 2. **Read GitHub.** The open epics, and the open issues with their labels: `gh issue list --state open --limit 500 --json number,title,labels,body`. For each candidate, its open blockers: `gh api repos/{owner}/{repo}/issues/<n>/dependencies/blocked_by --jq '[.[] | select(.state == "open")] | length'`. Leave out `good-first-issue`, `extractive` and issues already in progress (a branch `issue/<n>` or an open pull request on it).
 3. **Start the slice.** A slice has started when the epic carries one comment per layer it names, `Layer <name> filed: #a, #b, ...`. Until it does, spawn the lead of each missing layer, in parallel. Each reads the epic and its design documents, then the existing issues for its layer (including one-line stubs that still need a spec), writes the spec into each stub with `grdr-write-spec`, checks that every Work breakdown item of those documents has an issue, files every issue the slice still needs in its layer with the work-item form and the `slice:N` label (spec citing the doc section, write set, acceptance criteria, "blocked by" links), gives unlabelled issues of its squad a slice, and posts the layer comment on the epic. No layer is left for later, and no implementer starts in the slice before it has started.
 4. **Pick.** The highest-priority open issue labelled with the current slice whose blockers are closed; ties by oldest number.
@@ -51,7 +51,7 @@ Stop the loop and say why when:
   4. CI is red when a required workflow's latest push run concluded anything other than `success`.
 
   `branch-check.yml` has no push trigger and no required check, so it never counts here. Its result reaches the loop only through the branch check of step 1;
-- the branch check could not look (exit 2, any other exit status, or exit 0 without its summary line ending `findings: 0.` as the last line), or a finding is one its table sends to the owner: report the output and do not start new work;
+- the branch check could not look (its last line is not the summary, whatever the status, or it exited 2 or any status other than 0 and 1), or a finding is one its table sends to the owner: report the output and do not start new work;
 - the account's usage limit is reached.
 
 Under `/loop`, a stop means you do not schedule another iteration.
