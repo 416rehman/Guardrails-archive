@@ -113,9 +113,13 @@ paths = ["crates/grdr-export/**", "crates/grdr-integrations/**", "spec/**",
 [squad.release]
 alias = ["SQ-16"]
 lead = "lead-release"
-paths = ["deploy/**", "brand/**", "deny.toml", "deny.*.toml", ".deny.toml",
-         ".deny.exceptions.toml", ".config/deny.toml", ".config/deny.exceptions.toml",
-         "dist.toml", "release/**",
+paths = ["deploy/**", "brand/**", "dist.toml", "release/**",
+         "deny.toml", "deny.*.toml", ".deny.toml", ".deny.exceptions.toml",
+         ".config/deny.toml", ".config/deny.exceptions.toml",
+         ".cargo/deny.toml", ".cargo/deny.exceptions.toml",
+         "**/deny.toml", "**/deny.*.toml", "**/.deny.toml", "**/.deny.exceptions.toml",
+         "**/.config/deny.toml", "**/.config/deny.exceptions.toml",
+         "**/.cargo/deny.toml", "**/.cargo/deny.exceptions.toml",
          ".github/workflows/release-please.yml", "release-please-config.json",
          ".release-please-manifest.json"]
 

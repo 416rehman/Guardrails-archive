@@ -49,7 +49,7 @@ Top-level directories follow `design/03` section 11. This table fixes everything
 | `AGENTS.md`, `CLAUDE.md` | Map for every agent session; Claude Code additions (sections 3 and 4) | agent-kit | Yes, trust core |
 | `LICENSE`, `docs/LICENSE*`, `NOTICE`, `COVENANT.md`, `GOVERNANCE.md`, `CONTRIBUTING.md`, `AI_POLICY.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md`, `MAINTAINERS.md`, `ADOPTERS.md`, `TRADEMARKS.md` | Texts from `design/30` sections 13 to 16 and `design/35`; trademark text from `design/36` | security | Yes |
 | `REVIEW.md` and `*/REVIEW.md` | "What failure looks like here" per area; reviewers read it from the base branch only | Area squad | Yes |
-| `Cargo.toml`, `Cargo.lock`, `rust-toolchain.toml`, `.cargo/config.toml`, `deny.toml`, `deny.*.toml`, `.deny.toml`, `.deny.exceptions.toml`, `.config/deny.toml`, `.config/deny.exceptions.toml`, `clippy.toml`, `rustfmt.toml` | Workspace, the no-panic workspace lints (owner instruction 15), pins, lint and dependency policy | core, release | Yes, trust core |
+| `Cargo.toml`, `Cargo.lock`, `rust-toolchain.toml`, `.cargo/config.toml`, `clippy.toml`, `rustfmt.toml`; `deny.toml` and the other cargo-deny configuration file names at any depth (`deny.*.toml`, `.deny.toml`, `.deny.exceptions.toml`, and `deny.toml` or `deny.exceptions.toml` in a `.config/` or `.cargo/` folder) | Workspace, the no-panic workspace lints (owner instruction 15), pins, lint and dependency policy | core; release for the cargo-deny files | Yes, trust core |
 | `architecture.toml`, `surfaces.toml`, `support.toml`, `limits.toml`, `dist.toml` | Gate data the planned architecture lint reads (`design/03`); `dist.toml` is written by the packaging work item | core (`dist.toml`: release) | Yes, trust core |
 | `release-please-config.json`, `.release-please-manifest.json`, `release/VERSION` | release-please configuration: component versions, the product version and changelogs (owner instruction 3; `design/24` section 10) | release | Yes, trust core |
 | `buf.yaml`, `buf.gen.yaml`, `proto/grdr/**` | Protobuf packages `grdr.*.v1alpha1` | core | No; high tier, RFC to change (D-61) |
@@ -88,7 +88,13 @@ The main repository is `416rehman/Guardrails` on the owner's personal GitHub acc
 
 ```text
 **/*.snap
+**/.cargo/deny.exceptions.toml
+**/.cargo/deny.toml
 **/.claude/**
+**/.config/deny.exceptions.toml
+**/.config/deny.toml
+**/.deny.exceptions.toml
+**/.deny.toml
 **/AGENTS.md
 **/CHANGELOG.md
 **/CLAUDE.local.md
@@ -96,11 +102,9 @@ The main repository is `416rehman/Guardrails` on the owner's personal GitHub acc
 **/REVIEW.md
 **/__screenshots__/**
 **/clippy.toml
+**/deny.*.toml
+**/deny.toml
 .cargo/**
-.config/deny.exceptions.toml
-.config/deny.toml
-.deny.exceptions.toml
-.deny.toml
 .github/**
 .release-please-manifest.json
 ADOPTERS.md
@@ -120,8 +124,6 @@ architecture.toml
 audits/**
 brand/**
 conformance/vectors/**
-deny.*.toml
-deny.toml
 dist.toml
 docs/LICENSE*
 docs/PLAN.md
