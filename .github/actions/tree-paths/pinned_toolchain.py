@@ -37,12 +37,17 @@ def git_program():
     raise Refusal("GRDR-GATE-0003", "git is not on PATH")
 
 
-def git(*args):
+def git_environment():
+    """The caller's environment with no GIT_ variable, and object replacement turned off."""
     environment = {key: value for key, value in os.environ.items() if not key.upper().startswith("GIT_")}
     environment["GIT_NO_REPLACE_OBJECTS"] = "1"
+    return environment
+
+
+def git(*args):
     try:
         result = subprocess.run(
-            [git_program(), "--no-replace-objects", *args], env=environment, capture_output=True, check=False,
+            [git_program(), "--no-replace-objects", *args], env=git_environment(), capture_output=True, check=False,
         )
     except OSError as error:
         raise Refusal("GRDR-GATE-0003", f"cannot run git: {type(error).__name__}") from None
