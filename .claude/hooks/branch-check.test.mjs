@@ -12,7 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { checkState, closingPageArgs, findings, forkLinks, liveState, loadRules, openPullsArgs, printable, truncatedForks } from "./branch-findings.mjs";
+import { checkState, closingPageArgs, findings, forkLinks, liveState, loadRules, openPullsArgs, printable, truncatedForks, unseenOwn } from "./branch-findings.mjs";
 
 const HERE = fileURLToPath(new URL(".", import.meta.url));
 const SCRIPT = join(HERE, "branch-check.mjs");
@@ -93,6 +93,8 @@ for (const name of STATE_FIXTURES) {
     assert.equal(Number(summary[2]), fixture.expect.length);
     const truncated = printed.filter((line) => /^info: fork pull request #\d+ closes more issues than one page lists/.test(line));
     assert.deepEqual(truncated.map((line) => Number(/#(\d+)/.exec(line)?.[1])), fixture.expect_truncated_forks ?? []);
+    const unseen = printed.filter((line) => /^info: pull request #\d+ counts \d+ closing references the token cannot see/.test(line));
+    assert.deepEqual(unseen.map((line) => Number(/#(\d+)/.exec(line)?.[1])), fixture.expect_unseen ?? []);
   });
 }
 
@@ -208,7 +210,7 @@ test("a flood of fork links prints at most the limit of info lines, one count, t
   assert.equal(result.status, 0, result.stderr);
   const printed = result.stdout.split(/\r?\n/).filter(Boolean);
   assert.equal(printed.length, limit + 2);
-  assert.equal(printed.at(-2), `info: ${forks * refsEach - limit} more fork links not shown.`);
+  assert.equal(printed.at(-2), `info: ${forks * refsEach - limit} more fork lines not shown.`);
   const summary = SUMMARY.exec(printed.at(-1) ?? "");
   assert.ok(summary, printed.at(-1));
   assert.equal(Number(summary[1]), forks * refsEach);
@@ -294,15 +296,31 @@ test("a state of the wrong shape could not be looked at", () => {
   for (const state of wrong) assert.throws(() => checkState(state), /documented shape/);
 });
 
-test("truncated closing references are could-not-look on our pull requests and information on forks", () => {
-  const truncated = { closing_issues: [{ number: 2, repo: "example/repo" }], closing_total: 150 };
-  assert.throws(() => checkState({ ...STATE, pulls: [{ ...PULL, ...truncated }] }), /#1 closes more issues than GitHub listed \(1 of 150\)/);
-  assert.ok(checkState({ ...STATE, pulls: [PULL, { ...PULL, number: 2, head_repo: "contributor/repo", ...truncated }] }));
-  assert.ok(checkState({ ...STATE, pulls: [PULL, { ...PULL, number: 3, head_repo: null, ...truncated }] }));
+test("a short closing list is information: references the token cannot see on ours, one page on forks", () => {
+  const short = { closing_issues: [{ number: 2, repo: "example/repo" }], closing_total: 150 };
+  const own = checkState({ ...STATE, pulls: [{ ...PULL, ...short }] });
+  assert.deepEqual(unseenOwn(own), [{ pull: 1, unseen: 149 }]);
+  assert.deepEqual(truncatedForks(own), []);
   const unreadable = { closing_issues: [], closing_total: 1 };
-  assert.throws(() => checkState({ ...STATE, pulls: [{ ...PULL, ...unreadable }] }), /#1 closes more issues/);
-  const fork = { ...PULL, number: 4, head_repo: "contributor/repo", ...unreadable };
-  assert.deepEqual(truncatedForks(checkState({ ...STATE, pulls: [PULL, fork] })), [4]);
+  assert.deepEqual(unseenOwn(checkState({ ...STATE, pulls: [{ ...PULL, ...unreadable }] })), [{ pull: 1, unseen: 1 }]);
+  const forks = [
+    { ...PULL, number: 2, head_repo: "contributor/repo", ...short },
+    { ...PULL, number: 3, head_repo: null, ...short },
+    { ...PULL, number: 4, head_repo: "contributor/repo", ...unreadable },
+  ];
+  const state = checkState({ ...STATE, pulls: [PULL, ...forks] });
+  assert.deepEqual(truncatedForks(state), [2, 3, 4]);
+  assert.deepEqual(unseenOwn(state), []);
+});
+
+test("messages name the work branch from the work_branch_form data", () => {
+  const rules = loadRules(rulesWith((raw) => Object.assign(raw, { work_branch: "^work-([1-9][0-9]*)$", work_branch_form: "work-<n>" })));
+  const second = { ...PULL, number: 2, head: "wip", closing_issues: [{ number: 1, repo: "example/repo" }], closing_total: 1 };
+  const state = { ...STATE, branches: ["main", "work-1", "wip"], pulls: [{ ...PULL, head: "work-1" }, second] };
+  const messages = findings(state, rules).map((finding) => finding.message);
+  assert.ok(messages.some((message) => message.startsWith('"wip": not named work-<n>,') && message.includes("Move its commits to work-<n>")), messages.join("\n"));
+  assert.ok(messages.some((message) => message.includes("Keep the one on work-1 ")), messages.join("\n"));
+  assert.ok(messages.every((message) => !message.includes("issue/")), messages.join("\n"));
 });
 
 test("a branch list without the default branch is incomplete", () => {
@@ -325,4 +343,7 @@ test("rules missing a value, or with the wrong capture groups, are refused", () 
     assert.throws(() => loadRules(rulesWith((raw) => delete raw[key])), new RegExp(key));
   }
   assert.throws(() => loadRules(rulesWith((raw) => (raw.reference_line = "^refs #[0-9]+$"))), /exactly one capture group/);
+  assert.throws(() => loadRules(rulesWith((raw) => delete raw.work_branch_form)), /work_branch_form/);
+  assert.throws(() => loadRules(rulesWith((raw) => (raw.work_branch_form = "issue/n"))), /work_branch_form/);
+  assert.throws(() => loadRules(rulesWith((raw) => (raw.work_branch_form = "work/<n>"))), /work_branch_form/);
 });

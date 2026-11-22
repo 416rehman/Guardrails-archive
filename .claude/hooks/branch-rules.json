@@ -1,5 +1,6 @@
 {
   "work_branch": "^issue/([1-9][0-9]*)$",
+  "work_branch_form": "issue/<n>",
   "reference_line": "^[ \\t]*refs[ \\t]+#([1-9][0-9]*)[ \\t]*$",
   "exempt_from_name": [
     {

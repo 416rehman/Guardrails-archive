@@ -74,14 +74,26 @@ function positiveInteger(raw, key) {
   return value;
 }
 
+// The form people read, `issue/<n>`, must name the same branches as the work_branch pattern.
+function workBranchForm(raw, workBranch) {
+  const form = raw?.work_branch_form;
+  const sample = typeof form === "string" && form.split("<n>").length === 2 ? form.replace("<n>", "1") : undefined;
+  if (sample === undefined || workBranch.exec(sample)?.[1] !== "1") {
+    throw new Error("branch-rules.json work_branch_form needs one <n> and must match work_branch when <n> is a number");
+  }
+  return form;
+}
+
 export function loadRules(text) {
   const raw = JSON.parse(text);
   const exempt = raw?.exempt_from_name;
   if (!Array.isArray(exempt) || !exempt.every(isExemption)) {
     throw new Error("branch-rules.json exempt_from_name needs a list of entries, each with either a prefix or a name, and its authors");
   }
+  const workBranch = issuePattern(raw, "work_branch", "");
   return {
-    workBranch: issuePattern(raw, "work_branch", ""),
+    workBranch,
+    workBranchForm: workBranchForm(raw, workBranch),
     referenceLine: issuePattern(raw, "reference_line", "gim"),
     exemptions: exempt.map(({ prefix, name, authors }) => ({
       ...(prefix === undefined ? { match: "name", value: name } : { match: "prefix", value: prefix }),
@@ -132,9 +144,17 @@ export function checkState(state) {
   if (!state.branches.includes(state.default_branch)) {
     throw new Error(`the branch list lacks the default branch ${state.default_branch}, so it is not the whole list`);
   }
-  const truncated = state.pulls.find((pull) => isOwnPull(pull, state) && isTruncated(pull));
-  if (truncated) throw new Error(`pull request #${truncated.number} closes more issues than GitHub listed (${truncated.closing_issues.length} of ${truncated.closing_total})`);
   return state;
+}
+
+// After complete paging, GitHub's count can still exceed the list: it counts references in
+// repositories the token cannot read. Those are never issues of this repository, so they cannot
+// hide a link, and an account with write access to its own repository must not be able to make
+// the check stop by adding them.
+export function unseenOwn(state) {
+  return state.pulls
+    .filter((pull) => isOwnPull(pull, state) && isTruncated(pull))
+    .map((pull) => ({ pull: pull.number, unseen: pull.closing_total - pull.closing_issues.length }));
 }
 
 // A fork pull request with an incomplete list stays information: any account can open one.
@@ -265,7 +285,7 @@ function branchFindings(state, rules) {
       found.push({
         kind: "bad-name",
         subject: branch,
-        message: `${printable(branch)}: not named issue/<n>, and no exemption covers it with its pull request author. Move its commits to issue/<n> of its issue, replace its pull request and delete the branch (${FIX_SECTION}).`,
+        message: `${printable(branch)}: not named ${rules.workBranchForm}, and no exemption covers it with its pull request author. Move its commits to ${rules.workBranchForm} of its issue, replace its pull request and delete the branch (${FIX_SECTION}).`,
       });
     }
   }
@@ -284,7 +304,7 @@ function pullFindings(state, rules) {
     .map(([issue, pulls]) => ({
       kind: "second-pull-request",
       subject: `#${issue}`,
-      message: `#${issue}: linked from open pull requests ${pullNumbers(pulls)}. Keep the one on issue/${issue} and close each other one with a comment naming it (${FIX_SECTION}).`,
+      message: `#${issue}: linked from open pull requests ${pullNumbers(pulls)}. Keep the one on ${rules.workBranchForm.replace("<n>", issue)} and close each other one with a comment naming it (${FIX_SECTION}).`,
     }));
 }
 
@@ -303,12 +323,16 @@ export function forkLinks(state, rules) {
 // At most the rules' limit of fork lines, then one count, so a flood from forks cannot push the
 // summary line out of a reader's view.
 function infoLines(state, links, rules) {
-  const all = [
+  const unseen = unseenOwn(state).map(
+    ({ pull, unseen: count }) => `info: pull request #${pull} counts ${count} closing references the token cannot see; only those listed are read.`,
+  );
+  const fork = [
     ...truncatedForks(state).map((pull) => `info: fork pull request #${pull} closes more issues than one page lists; only those listed are read.`),
     ...links.map((link) => `info: fork pull request #${link.pull} links #${link.issue}; fork links raise no finding.`),
   ];
-  const hidden = all.length - rules.forkInfoLineLimit;
-  return hidden > 0 ? [...all.slice(0, rules.forkInfoLineLimit), `info: ${hidden} more fork links not shown.`] : all;
+  const hidden = fork.length - rules.forkInfoLineLimit;
+  const shown = hidden > 0 ? [...fork.slice(0, rules.forkInfoLineLimit), `info: ${hidden} more fork lines not shown.`] : fork;
+  return [...unseen, ...shown];
 }
 
 export function main(argv) {
