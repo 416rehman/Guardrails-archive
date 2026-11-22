@@ -5,8 +5,8 @@ name: verify
 # nightly run and a manual run cover Linux, macOS and Windows on GitHub's free standard runners
 # (owner instruction 28); a private copy falls back to Linux with no nightly run, because private
 # runner minutes are limited. Until a crate lands under crates/ or programs/ the workspace has no
-# members, Cargo refuses every command, and the Rust steps are skipped. Every job that runs cargo
-# first calls the .github/actions/tree-paths action for the pinned toolchain.
+# members, Cargo refuses every command, and the Rust steps are skipped. Every job that checks out
+# the repository then calls the .github/actions/tree-paths action for the pinned toolchain.
 
 on:
   pull_request:
@@ -40,6 +40,15 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - id: toolchain
+        uses: $/.github/actions/tree-paths
+        with:
+          install: "false"
+      - name: Write RUSTUP_TOOLCHAIN to GITHUB_ENV
+        shell: bash
+        env:
+          CHANNEL: ${{ steps.toolchain.outputs.channel }}
+        run: echo "RUSTUP_TOOLCHAIN=${CHANNEL:?}" >> "$GITHUB_ENV"
       - id: plan
         env:
           GH_TOKEN: ${{ github.token }}
@@ -74,6 +83,15 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - id: toolchain
+        uses: $/.github/actions/tree-paths
+        with:
+          install: "false"
+      - name: Write RUSTUP_TOOLCHAIN to GITHUB_ENV
+        shell: bash
+        env:
+          CHANNEL: ${{ steps.toolchain.outputs.channel }}
+        run: echo "RUSTUP_TOOLCHAIN=${CHANNEL:?}" >> "$GITHUB_ENV"
       - run: python3 -I -B -m unittest discover -s .github/actions/tree-paths -p "test_*.py" -v
 
   rust:
@@ -101,9 +119,10 @@ jobs:
       - id: toolchain
         uses: $/.github/actions/tree-paths
       - name: Write RUSTUP_TOOLCHAIN to GITHUB_ENV
+        shell: bash
         env:
           CHANNEL: ${{ steps.toolchain.outputs.channel }}
-        run: echo "RUSTUP_TOOLCHAIN=$CHANNEL" >> "$GITHUB_ENV"
+        run: echo "RUSTUP_TOOLCHAIN=${CHANNEL:?}" >> "$GITHUB_ENV"
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
@@ -131,9 +150,10 @@ jobs:
         with:
           install: "false"
       - name: Write RUSTUP_TOOLCHAIN to GITHUB_ENV
+        shell: bash
         env:
           CHANNEL: ${{ steps.toolchain.outputs.channel }}
-        run: echo "RUSTUP_TOOLCHAIN=$CHANNEL" >> "$GITHUB_ENV"
+        run: echo "RUSTUP_TOOLCHAIN=${CHANNEL:?}" >> "$GITHUB_ENV"
       - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
         env:
           RUSTUP_TOOLCHAIN: ${{ env.RUSTUP_TOOLCHAIN }}
