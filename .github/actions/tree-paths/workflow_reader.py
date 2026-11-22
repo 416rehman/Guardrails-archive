@@ -1,9 +1,14 @@
 """A reader for the part of YAML the workflows and local actions are written in.
 
-It reads block mappings and sequences, plain, quoted and block scalars, and comments, and raises
-Unreadable for anything else (flow collections other than [words] and {}, anchors, aliases, tags,
-explicit keys, escapes, a character outside printable ASCII), so what it reads is what YAML reads.
-It splits lines on line feeds only.
+It reads block mappings and sequences, plain, quoted and block scalars, and comments. It raises
+Unreadable on the forms the fixtures exercise that it does not read: flow collections other than
+[words] and {}, anchors, aliases, tags, explicit keys, escapes, a character outside printable ASCII.
+It splits lines on line feeds only. It is not a YAML parser: a block scalar's value reaches the
+rules as BLOCK_SCALAR, not as its text, and each rule built on what it returns is a text match.
+
+The fixture tables in test_pinned_toolchain.py are the list of forms the test claims to refuse.
+Every file it reads is under .github/**, which is trust core, and review of an edit there by the
+trust-core evaluator set is the control for every other form (design/02 TB-11, D-63).
 """
 
 import dataclasses
@@ -45,7 +50,7 @@ class Unreadable(Exception):
 
 
 def lines_of(text):
-    """The lines YAML reads as structure, with each "- " split into an item start and the line after it.
+    """The structure lines of the text, each "- " split into an item start and the line after it.
 
     Blank lines, comments and the text of block scalars are left out. A block scalar's text is
     every following line that is blank or deeper than the key that opens it.
@@ -71,7 +76,7 @@ def lines_of(text):
 
 
 def scalar(text, number):
-    """The value of a scalar written on one line, as YAML reads it."""
+    """The reader's value for a scalar written on one line; BLOCK_SCALAR for a block indicator."""
     if BLOCK_INDICATOR.fullmatch(text):
         return BLOCK_SCALAR
     single = SINGLE_QUOTED.fullmatch(text)

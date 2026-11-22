@@ -5,8 +5,8 @@ name: verify
 # nightly run and a manual run cover Linux, macOS and Windows on GitHub's free standard runners
 # (owner instruction 28); a private copy falls back to Linux with no nightly run, because private
 # runner minutes are limited. Until a crate lands under crates/ or programs/ the workspace has no
-# members, Cargo refuses every command, and the Rust steps are skipped. Every job that checks out
-# the repository then calls the .github/actions/tree-paths action for the pinned toolchain.
+# members, Cargo refuses every command, and the Rust steps are skipped. Every job that has an
+# actions/checkout step calls the .github/actions/tree-paths action for the pinned toolchain.
 
 on:
   pull_request:

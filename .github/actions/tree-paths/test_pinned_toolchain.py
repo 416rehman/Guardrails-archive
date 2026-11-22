@@ -4,8 +4,15 @@ python -I -m unittest discover -s .github/actions/tree-paths -p "test_pinned_too
 
 The oracles are rustup's documented toolchain file format (a [toolchain] table with channel,
 components, targets, profile or path), git's own objects for each fixture commit, the real
-rust-toolchain.toml, cargo's and rustup's lists of the variables they read, and the workflows and
-local actions read as YAML reads them.
+rust-toolchain.toml, cargo's and rustup's lists of the variables they read, and the real workflows
+and local actions.
+
+The workflow test is a tripwire for drift and mistakes in workflow edits. Its rules are text
+matches. The fixture tables in this file, and the changed copies of the pin action that the pin
+action test builds, are the list of forms it claims to refuse; it claims nothing about a form no
+fixture exercises, even one of the same kind as a fixture's. Every file it reads is under .github/**, which
+is trust core, and review of an edit there by the trust-core evaluator set is the control for every
+other form (design/02 TB-11, D-63).
 """
 
 import os
@@ -81,7 +88,7 @@ JOB_KEY_LINES = {
     "underscore-and-capitals": ("  Build_Docs_2:", "Build_Docs_2"),
     "quoted-underscore-capitals-comment": ('  "Build_Docs_2" : # docs', "Build_Docs_2"),
 }
-# Jobs that check out the repository and do not keep the pin, whatever their steps run.
+# Jobs with an actions/checkout step that do not keep the pin, whatever their steps run.
 UNPINNED = {
     "plain-cargo": CHECKOUT + CARGO,
     "no-cargo-at-all": CHECKOUT + "      - run: make docs\n",
@@ -187,7 +194,7 @@ UNLISTED_JOB_KEYS = {
     "job-container": "    container: rust:1.80\n",
     "job-continue-on-error": "    continue-on-error: true\n",
 }
-# Workflows the reader does not read, each holding a job that checks out without the pin.
+# Workflows the reader does not read, each holding a job with an actions/checkout step and no pin.
 UNREADABLE = {
     **{
         f"line-break-{name}": f"    steps: # c{char}    a: |\n      - {{uses: actions/checkout@0}}\n"
@@ -209,8 +216,8 @@ UNREADABLE = {
     "second-document": "    steps:\n      - run: x\n---\njobs:\n  docs:\n    steps:\n      - uses: actions/checkout@0\n",
     "remote-reusable-workflow": "    uses: example/rust/.github/workflows/docs.yml@0\n",
 }
-# One fixture for each refusal of the reader and the pin rules that no other fixture needs: each
-# passes when that refusal alone is taken out.
+# Fixtures that each need a refusal of the reader or the pin rules that the tables above do not
+# need: each passes when that refusal alone is taken out.
 NEEDS_ONE_REFUSAL = {
     **{f"{name}-in-a-comment": PINNED + f"      # note{char}more\n" + CARGO for name, char in ODD_CHARACTERS.items()},
     "checkout-beside-a-block-scalar": "      - run: |\n          echo\n        uses: actions/checkout@0\n" + CARGO,

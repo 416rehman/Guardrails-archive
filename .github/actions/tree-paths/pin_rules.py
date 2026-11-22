@@ -1,11 +1,17 @@
-"""The rules that keep every job that checks out the repository on the pinned toolchain.
+"""The rules the workflow test runs over the workflows, the local actions and the pin action.
 
-Every job that checks out calls the pin action in the step after its checkout and writes the
-channel to GITHUB_ENV as RUSTUP_TOOLCHAIN in the step after that. Steps, jobs and actions hold only
-the keys listed here. No workflow or local action outside the pin action names rustup, gives a rustup
-proxy a +toolchain argument, sets a variable that chooses the toolchain or the compiler, or writes
-GITHUB_ENV or GITHUB_PATH. A toolchain name built at run time (a matrix value, a variable, a split
-string) is not something a text check can see; review of the workflow change is the control for that.
+Each rule is a text match, over the keys and values workflow_reader.py gives it or over the raw
+text. A job that has an actions/checkout step must call the pin action in the step after its first
+checkout, and write the channel to GITHUB_ENV as RUSTUP_TOOLCHAIN in the step after that. Steps,
+jobs, local actions and a job's first checkout may hold only the keys and inputs listed here. The
+other matches refuse the spellings they match: a line outside the pin that holds the text rustup or
+writes GITHUB_ENV or GITHUB_PATH, a +toolchain argument after a rustup proxy's name, a variable
+REFUSED_VARIABLES lists set as an env key or as NAME=, and a step condition that runs after a failure.
+
+The fixture tables in test_pinned_toolchain.py are the list of forms the test claims to refuse. It
+claims nothing about a form no fixture exercises, even one of the same kind as a fixture's. Every
+file these rules read is under .github/**, which is trust core, and review of an edit there by the
+trust-core evaluator set is the control for every other form (design/02 TB-11, D-63).
 """
 
 import re
@@ -79,8 +85,9 @@ ACTIONS = {
 
 CARGO_READS = "cargo book, Environment variables, Environment variables Cargo reads"
 CARGO_CONFIG = "cargo book, Environment variables, Configuration environment variables"
-# Variables that choose the compiler, or that run code before the write step, and the page that
-# lists each. Every RUSTUP_ variable (rustup book, Environment variables) is refused through RUSTUP.
+# Variable names refused as an env key or as NAME=, each with the page that lists it: they choose
+# the compiler, or run code before the write step. RUSTUP_ names are not listed: a line outside the
+# pin that holds one is refused by the RUSTUP text match.
 REFUSED_VARIABLES = {
     "RUSTC": CARGO_READS,
     "RUSTC_WRAPPER": CARGO_READS,
@@ -98,14 +105,15 @@ REFUSED_VARIABLES = {
 }
 # Lines outside the pin that may write GITHUB_ENV or GITHUB_PATH, as (file name, line) to a reason.
 ENV_WRITES = {}
-# Steps of a job that checks out whose if: runs after a failure, as (workflow, job, action) to a reason.
+# Steps of a job with an actions/checkout step whose if: may run after a failure, as (workflow, job,
+# action) to a reason.
 STATUS_CONDITIONS = {
     ("dast.yml", "baseline", "actions/upload-artifact"): "uploads the scan reports and the server log after a failed scan; runs no cargo",
 }
 
 RUSTUP = re.compile(r"rustup", re.I)
-# A +toolchain argument to a rustup proxy, named by its basename with or without a path, quotes or
-# .exe; quotes, backslashes and line breaks may sit before the +, as in a folded or continued line.
+# Matches a rustup proxy's basename, with or without a path, quotes or .exe, then quotes, backslashes
+# or whitespace and a +, as in a plain, folded or continued line. It matches only that spelling.
 RUSTUP_PROXY = r"(?:cargo(?:-[a-z0-9_-]+)?|rustc|rustdoc|rustfmt|rust-[a-z0-9_-]+|clippy-driver|miri|rls)"
 PLUS_TOOLCHAIN = re.compile(rf"(?<![\w-]){RUSTUP_PROXY}(?:\.exe)?[\"']?[\s\\\"']+\+", re.I)
 VARIABLE_ASSIGNMENT = re.compile(rf"(?<![\w-])(?:{'|'.join(REFUSED_VARIABLES)})\s*=", re.I)
@@ -119,7 +127,7 @@ def action_of(step):
 
 
 def refused_env_keys(value, name):
-    """Every env mapping at any depth that sets a variable REFUSED_VARIABLES lists, in any letter case."""
+    """The keys of env mappings at any depth that match a REFUSED_VARIABLES name in any letter case."""
     if isinstance(value.data, list):
         return [problem for child in value.data for problem in refused_env_keys(child, name)]
     if not isinstance(value.data, dict):
@@ -198,7 +206,7 @@ def job_problems(name, job_id, job, steps, allowed_lines):
 
 
 def text_problems(text, allowed_lines, name):
-    """What the text of a workflow or a local action does past the pin."""
+    """The raw text matches over a workflow or a local action, outside the allowed lines."""
     problems = [f"{name}: gives a rustup proxy a +toolchain argument: {found[0]!r}" for found in PLUS_TOOLCHAIN.finditer(text)]
     problems += [f"{name}: sets {found[0]!r}" for found in VARIABLE_ASSIGNMENT.finditer(text)]
     for number, line in enumerate(text.split("\n"), 1):
@@ -212,7 +220,7 @@ def text_problems(text, allowed_lines, name):
 
 
 def workflow_problems(text, name="fixture.yml"):
-    """Why a workflow does not keep the pin; empty when it does."""
+    """What the rules find in a workflow; empty when no rule matches."""
     allowed_lines = set()
     try:
         root = parse(text)
@@ -224,7 +232,7 @@ def workflow_problems(text, name="fixture.yml"):
 
 
 def action_problems(text, name="fixture/action.yml"):
-    """Why a local action, other than the pin action, does not leave the pin alone; empty when it does."""
+    """What the rules find in a local action other than the pin action; empty when no rule matches."""
     try:
         root = parse(text)
         action = as_mapping(root, "the action")
@@ -242,7 +250,7 @@ def action_problems(text, name="fixture/action.yml"):
 
 
 def pin_action_problems(text):
-    """Why the pin action could give a channel other than the reader's; empty when it cannot."""
+    """Where the pin action's outputs, steps, read step or writes differ from what the checks expect."""
     try:
         action = as_mapping(parse(text), "the pin action")
         outputs = as_mapping(action["outputs"], "outputs")

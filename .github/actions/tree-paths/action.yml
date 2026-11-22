@@ -2,8 +2,8 @@ name: Pinned Rust toolchain
 description: >-
   Reads the toolchain that the checked-out commit's rust-toolchain.toml pins (pinned_toolchain.py,
   from git objects with replacement off) into outputs, then installs it with rustup unless install
-  is false. Every job that checks out the repository calls this with id toolchain in the step
-  after its checkout, and in the next step writes the channel output to GITHUB_ENV as
+  is false. Every job that has an actions/checkout step calls this with id toolchain in the step
+  after its first checkout, and in the next step writes the channel output to GITHUB_ENV as
   RUSTUP_TOOLCHAIN, refusing an empty one.
 
 inputs:
