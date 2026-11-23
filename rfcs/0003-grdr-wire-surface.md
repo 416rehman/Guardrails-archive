@@ -6,12 +6,12 @@ Model: claude-opus-5-5
 State: Review
 Design issue: #1757
 Spine: D-14, D-20, D-48, D-61, D-63, D-66, P1, P3, P5, P8, P9, P14, P17 (no spine text changes)
-Surfaces: public crates `grdr-wire` (modules `frame`, `local`, `peer_auth`) and `grdr-wire-testkit`; new same-layer edges `grdr-wire` to `grdr-ports` and `grdr-wire-testkit` to `grdr-wire` (design/03 section 2); the `grdr-model` types `InstallProfile` and `Tamper`, through the RFC of #1710
+Surfaces: public crates `grdr-wire` (modules `frame`, `local`, `peer_auth`) and `grdr-wire-testkit`; new same-layer edges `grdr-wire` to `grdr-ports` (for `Clock` only) and `grdr-wire-testkit` to `grdr-wire` (design/03 section 2); downward dependencies of `grdr-wire` on `grdr-schema` (layer 0) and `grdr-model` (layer 1, including `InstallProfile` and `Tamper` stated by RFC 0009, ADR-0041); internal layer 3 OS adapter crate `grdr-ipc-os`
 Decision record: none yet
 
 To comment, write on issue #1757 of this repository; you need no account on any service other than the code host. A security fix under embargo (D-62) may change a public surface without an RFC; open a retroactive RFC when the fix is disclosed.
 
-This is revision 3. It answers the round 1 and round 2 reviews; the comments headed "RFC 0003 round 2: dispositions" and "RFC 0003 round 3: dispositions" on #1757 list every finding and where it went. The text below is normative on its own. Where it differs from the items it serves, this RFC wins, and section 16 tells each lead what to write back.
+This is revision 4. It reconciles revision 3 (reviewed at `533c30d` in round 3, whose dispositions sit on #1757) with accepted RFC 0007 (ADR-0038), RFC 0008 (ADR-0040), RFC 0009 (ADR-0041 and its #1982 constraint on #1757) and RFC 0010 (ADR-0044), with ADR-0045 (daemon OS calls and #2011's updates to design/03), and with the round 3 findings `m1` to `m7` and seat 2's uninstall note. Where revision 3 and revision 4 differ, revision 4 is normative; section 16 tells each lead what to write back.
 
 ## Summary
 Slice 0 adds the first public items to `grdr-wire`:
@@ -20,10 +20,10 @@ Slice 0 adds the first public items to `grdr-wire`:
 - endpoint resolution;
 - the platform-neutral peer-authentication decision, and the connections that only that decision can produce.
 
-`grdr-wire` makes no system call and links no OS binding; it decides, frames and gates. A program never holds an unverified link. The client gets a connection only from `open`, which checks and connects to one address. The server gets one only from `accept` and the first frame. This RFC states every signature, the rule each seam follows, the decision tables, every wait and its exit, the 22 error codes of the `WIRE` and `PEER` areas, what each refusal means as evidence, and what reaches a person and the server. Both crates enter as `experimental`. No spine text changes; section 15 proposes the amendments to design/03, design/07, design/11, `architecture.toml` and the ruling on #1743.
+`grdr-wire` makes no system call and links no OS binding; it decides, frames and gates. A program never holds an unverified link. The client gets a connection only from `open`, which checks and connects to one address. The server gets one only from `accept` and the first frame. This RFC states every signature, the rule each seam follows, the decision tables, every wait and its exit, the 22 error codes of the `WIRE` and `PEER` areas, what each refusal means as evidence, and what reaches a person and the server. Both crates enter as `experimental`. No spine text changes; section 15 proposes the amendments to design/03, design/07, design/11, design/24, `architecture.toml` and ADR-0045 (the ruling on #1743 and #1671).
 
 ## Motivation
-`grdr-wire` is a public layer 2 crate (design/03 section 2), so its surface changes only by RFC (D-61; design/30 section 3). Seven items build on it without one: #374, #375, #555, #1549, #1606, #683 and #684. The ruling on #1743 and #1671 moved every OS reader to `grdr-peer-os` and every listener to `grdr-os-service`, which leaves a seam between those crates and `grdr-wire` that no item states.
+`grdr-wire` is a public layer 2 crate (design/03 section 2), so its surface changes only by RFC (D-61; design/30 section 3). Seven items build on it without one: #374, #375, #555, #1549, #1606, #683 and #684. ADR-0045 (the ruling on #1743 and #1671, recorded in design/03 by #2011) moved every OS reader to `grdr-peer-os` and every service-manager seam and listener creator to `grdr-os-service`, which leaves a seam between those crates and `grdr-wire` that no item states.
 
 Read together, the items disagree in places that would become defects:
 - #374 R4 makes the verifiers traits that any crate could implement, so any crate could mint a verified value.
@@ -46,7 +46,7 @@ Terms:
 - An **observation** is what a reader saw, as plain data. The decision turns observations into a proof or a `Refusal`.
 - **ARCH-nnn** is a rule of the architecture lint (design/03 section 2; `cargo run --locked -p grdr-archlint -- check`).
 
-Rule 1. **Dependencies.** `grdr-wire` depends on `grdr-model`, `grdr-ports` (for `Clock` only, a new same-layer edge) and std. It has no third-party dependency, no Cargo feature (design/03 section 8) and `unsafe_code` forbidden. If RFC 0002 is decided with `Clock` in `grdr-model`, re-exported by `grdr-ports` as `Entropy` is, the edge goes and `grdr-ports` leaves the shim's closure. That is the preferred outcome (question 4).
+Rule 1. **Dependencies.** `grdr-wire` depends on `grdr-schema` (layer 0, for `Code` and `Coded`), `grdr-model` (layer 1, for `Monotonic`, `LogSafe`, `InstallProfile` and `Tamper`), `grdr-ports` (layer 2, a new same-layer edge for `grdr_ports::clock::Clock` only, since RFC 0008 / ADR-0040 keeps `Clock` in layer 2 so layers 0 and 1 hold no clock trait) and std. It has no third-party dependency, no Cargo feature (design/03 section 8) and `unsafe_code` forbidden.
 
 Rule 2. **No OS calls.** `grdr-wire` makes no system call. Every socket, pipe, file-system read, credential read and service query sits behind a seam. The only OS types on the surface are std's `BorrowedFd`, `OwnedFd`, `BorrowedHandle` and `OwnedHandle` (ARCH-007; #1757 R2). The codec, the observations, the decision and the resolver compile on every target, so the decision for all three systems is tested on any host.
 
@@ -59,16 +59,16 @@ Rule 3. **Seams are called only by `grdr-wire`, one token per seam.** Each seam 
 
 Rule 4. **Proofs are minted only in `grdr-wire`.** Proofs have private fields and `pub(crate)` constructors. None implements `Default`, `Clone`, `Deserialize` or a `From` (f01, f06 to f12, f16 to f18). A connection owns its link, so a proof cannot move to another link. A program never holds an unverified link: `open` connects to the address it checks, and `accept` takes the link from the acceptor and verifies it before the program sees it.
 
-Rule 5. **Blocking calls with deadlines.** Every wait has a deadline, a `grdr_model::Monotonic` read through `Clock`. `grdr-wire` passes each seam call the time left, capped at `call_max`, and never zero. When nothing is left it returns `TimedOut` without calling. It calls again after a `TimedOut` that came back before the deadline, so the cap never ends a wait early. Section 8 lists every wait and its exits.
+Rule 5. **Blocking calls with deadlines.** Every wait has a deadline, a `grdr_model::Monotonic` read through `grdr_ports::clock::Clock` (RFC 0008, ADR-0040). `grdr-wire` passes each seam call the time left, capped at `call_max`, and never zero. When nothing is left it returns `TimedOut` without calling. It calls again after a `TimedOut` that came back before the deadline, so the cap never ends a wait early. Section 8 lists every wait and its exits.
 - One reading of the wall clock sits outside `Clock`. The Windows pipe acceptor stamps when a connect completed as Windows system time, which is only ever compared with another Windows system time, a process's creation time. The program acts on neither, so `Clock`'s rule (design/03 section 10) is not engaged; section 15 records the exception.
 - There is no async API in slice 0 (Alternatives).
 
 Rule 6. **Bytes only.** `grdr-wire` frames bytes and never decodes a protobuf body. The receiver decodes through `grdr-proto`, which is the IPC frame decoder ARCH-004 allows.
 
 Rule 7. **Errors and enums.**
-- Each failing type has one error enum, and `Coded` (#280) binds each variant to one code (section 9). Errors carry structural values only and implement `LogSafe` (#284).
+- Each failing type has one error enum, and `grdr_schema::codes::Coded` (RFC 0007, ADR-0038; built by #278) binds each variant to one code (section 9). Errors carry structural values only and implement `grdr_model::LogSafe` (RFC 0009, ADR-0041; built by #284), returning `LogValue::Code(*self.code())` (wrapper enums such as `WireError::Link`, `OpenError` and `FirstFrameError` forward to the carried coded error's code).
 - Every public enum is `#[non_exhaustive]`, except the three that implementers construct and only `grdr-wire` matches: `LinkFault`, `ReadFault` and `Accepted`. Callers act on a code's class and on `Refusal::evidence()`, never on a variant. Inside `grdr-wire`, the decision and the reference model match every variant.
-- Evidence has one source: the `evidence` column of `schema/codes/peer.toml`. The generator emits it with each code, and `Refusal::evidence()` reads it through the variant's code. A test asserts that every `Refusal` variant's code carries an evidence value, and section 9's column only documents the registry (m7).
+- Evidence has one source: `Refusal::evidence(&self) -> Evidence` in `grdr-wire::peer_auth`, an exhaustive match with no wildcard arm. `schema/codes/peer.toml` stores only RFC 0007's standard keys (`number`, `reason`, `status`, `class`, `connect`) with no `evidence` column, and section 9's `Evidence` column only documents `Refusal::evidence()`. A test in #375 asserts that every `Refusal` variant's `evidence()` agrees with its `code().class()` (`Tamper` with `policy`, `Configuration` and `Coverage` with `fatal`, `Transient` with `retryable`).
 - Every observation that a reader can half-complete is one enum with an arm per outcome, never a set of `Option` fields read together (structure rule S4). Examples are `OpenedReading`, `ServiceProcess`, and the two pipe arms of `PeerRef` (M3).
 
 Rule 8. **Bounds are parameters.** The frame cap, `call_max`, the read chunk, the first-frame wait and the suite's wait and margin come from `limits.toml` (section 11 names the keys). The 4-byte little-endian header of design/07 section 2 is a format constant, not a tunable.
@@ -82,7 +82,7 @@ Data classes (P8):
 - `PeerIdentity::pid` and `principal` are the accessors that expose identifiers. The daemon derives the process key from the hold (#25), and retention of a peer's pid, uid or SID is the daemon item's decision, stated with its `data_class`.
 - The wire types carry no organisation. The daemon stamps it from its tenant context when it emits an event (seat 4).
 
-Assurance effect (P1): the `tamper` grade of every decision delivered through a verified endpoint is set in one place, `resolve` (section 6): `admin` for Protected, `user` for User. No action class changes `visibility`, `control` or `on_failure`.
+Assurance effect (P1): the `tamper` grade of every decision delivered through a verified endpoint is set in one place, `resolve` (section 6): `Tamper::Admin` for `InstallProfile::Protected`, `Tamper::User` for `InstallProfile::User` (RFC 0009, ADR-0041). Per RFC 0009 constraints 2a and 2e, callers invoke `resolve` only with a decided profile from install state (never a guessed default before D-48's choice, so nothing reports `Tamper::Admin` for a device that never elevated), and no endpoint code in slice 0 produces `Tamper::Platform`, which comes only from a signed `HostProfile` in an embedded build. No action class changes `visibility`, `control` or `on_failure`.
 
 ### 2. What lives where
 | Concern | Crate | Squad |
@@ -90,12 +90,12 @@ Assurance effect (P1): the `tamper` grade of every decision delivered through a 
 | Frame codec, seams, connections, the link and acceptor suites | `grdr-wire` `frame`, `local` | core |
 | Observations, the reader seam, endpoint resolution, the decision, `open`, `accept`, proofs | `grdr-wire` `peer_auth` (trust core) | security |
 | `MemLink` and `MemNet`, the in-memory link, connector and acceptor | `grdr-wire-testkit` (layer 2, public, never in a layer 4 program's normal closure) | core |
-| `Link`, `Connector` and `Acceptor` for Unix sockets (connect with `SO_SNDTIMEO`, accept with `poll(2)` and a wake pipe) and Windows pipes (overlapped I/O with `CancelIoEx`, `WaitNamedPipeW`, the connect time stamped first in the completion path) | `grdr-ipc-os`, new, layer 3, trust core under IPC peer authentication | endpoint |
-| `PeerReader` on each system, and the hold-based lookups #1549 R1 needs | `grdr-peer-os` (trust core) | security |
-| The service-manager seam; adopting the listeners a manager passes; creating every pipe instance, with `FILE_FLAG_FIRST_PIPE_INSTANCE` on the first, `PIPE_REJECT_REMOTE_CLIENTS` on each, and the DACL and owner of section 15; handing them over as std `UnixListener`, `OwnedFd` or `OwnedHandle` | `grdr-os-service` | endpoint |
-| Accept loops, handlers, `Clock` adapters, the shim's table path | the programs | endpoint, adapters |
+| `Link`, `Connector` and `Acceptor` for Unix sockets (connect with `SO_SNDTIMEO`, accept with `poll(2)` and a wake pipe) and Windows pipes (overlapped I/O with `CancelIoEx`, `WaitNamedPipeW`, the connect time stamped first in the completion path) | `grdr-ipc-os`, new, layer 3 OS adapter crate, trust core under IPC peer authentication | endpoint |
+| `PeerReader` on each system, and the hold-based lookups #1549 R1 needs | `grdr-peer-os` (layer 3 OS adapter crate, trust core) | security |
+| The service-manager seam; adopting the listeners a manager passes; creating every pipe instance, with `FILE_FLAG_FIRST_PIPE_INSTANCE` on the first, `PIPE_REJECT_REMOTE_CLIENTS` on each, and the DACL and owner of section 15; handing them over as std `UnixListener`, `OwnedFd` or `OwnedHandle` | `grdr-os-service` (layer 3 OS adapter crate, trust core) | endpoint |
+| Accept loops, handlers, passing `grdr-os-clock`'s `Clock` adapter (RFC 0008), the shim's table path | the programs | endpoint, adapters |
 
-The client side needs local stream code but not the service seam. The ruling on #1743 kept the two apart for the same reason, so they are separate crates (F6). `grdr-hook`, `grdr` and `grdr-tray` link `grdr-ipc-os` and `grdr-peer-os`, never `grdr-os-service`. The shim's closure gains `grdr-ipc-os`, the raw bindings already present through `grdr-peer-os`, and `grdr-ports` while Rule 1's edge stands. #377's 2 MiB binary-size criterion measures the cost. The daemon joins `grdr-os-service` to `grdr-ipc-os` through std types, so no layer 3 crate depends on another (ARCH-002).
+The client side needs local stream code but not the service seam. ADR-0045 (the ruling on #1743 and #1671, recorded in design/03 by #2011) kept `grdr-os-service` and `grdr-peer-os` apart for the same reason, and this RFC refines ADR-0045 by keeping local links, connectors and acceptors in `grdr-ipc-os` rather than inside `grdr-os-service` or std wrappers in `grdr-daemon` (F6). `grdr-hook`, `grdr` and `grdr-tray` link `grdr-ipc-os` and `grdr-peer-os`, never `grdr-os-service`. Like `grdr-peer-os`, `grdr-ipc-os` is a layer 3 OS adapter crate listed in `architecture.toml` (`unsafe_code = "deny"`, `rustix` and `windows-sys` bindings, `endpoint` squad); within the workspace it depends only on `grdr-wire`. The shim's closure gains `grdr-ipc-os`, the raw bindings already present through `grdr-peer-os`, `grdr-schema`, `grdr-os-clock` and `grdr-ports` (under Rule 1's edge for `Clock`). #377's 2 MiB binary-size criterion measures the cost. The daemon joins `grdr-os-service` to `grdr-ipc-os` through std types, so no layer 3 crate depends on another (ARCH-002):
 - On Unix it passes the adopted `UnixListener` to the Unix acceptor.
 - On Windows it builds the pipe acceptor with an instance source, `impl FnMut() -> io::Result<OwnedHandle> + Send`, a closure that calls `grdr-os-service`. The acceptor keeps `endpoint.pipe.instances` instances waiting and asks the source for the next one as each is taken. `grdr-ipc-os` never creates an instance, so the DACL and owner code exists once (m4).
 
@@ -227,7 +227,7 @@ pub enum Place { Path(PathBuf), UnderRuntimeDir(PathBuf), UnderHome(PathBuf), Pi
 pub enum OwnerSpec { Root, Caller, Sid(Sid) }
 pub struct EndpointSpec { pub place: Place, pub owner: OwnerSpec, pub trusted_groups: Vec<u32>, pub service: Option<String> }
 pub struct UserContext { pub runtime_dir: Option<PathBuf>, pub home: Option<PathBuf>, pub sid: Option<Sid> }
-pub struct Endpoint { /* private: Address, the expectation */ }
+pub struct Endpoint { /* private: Address, private Expectation (Unix or Pipe) */ }
 impl Endpoint { pub fn address(&self) -> &Address; }
 pub fn resolve(spec: &EndpointSpec, profile: InstallProfile, user: &UserContext) -> Result<Endpoint, ResolveError>;
 #[non_exhaustive]
@@ -242,20 +242,21 @@ pub enum ResolveError { Spec(SpecFault), UserContext(UserPart) }
   - The defaults come from the brand manifest's names and the platform path tables (D-66; design/03 section 9), so two vendors' products on one host never share a name. An embedder overrides a row without a code change.
   - Every key of the row is `security`-tagged. In the Protected topology it is read only from layers 1 to 3 (signed server configuration, MDM, the admin-owned install file), never from a user file, the environment or a flag (design/03 section 9).
   - It is organisation-scoped, pushed by the server or an MDM profile, diffable against the default, and audited as a configuration change.
-  - The install profile comes from install state, never from the row.
+  - The install profile (`grdr_model::InstallProfile`) comes from install state after D-48's choice, never from the row. Per RFC 0009 constraint 2a, callers invoke `resolve` only with a decided profile and never supply a default before D-48's choice.
   - `grdr doctor` runs the row's path check as the preflight `endpoint-path` before install, so an MDM profile is checked before any shim depends on it.
 - **The user context.** `UserContext` holds the canonical runtime directory, home and caller SID, which the program reads once at start.
 - **What `resolve` checks:**
   - `Path` must be absolute by the host's path rules. The relative part of `UnderRuntimeDir` and `UnderHome` must be non-empty and contain only normal components. A missing base is `ResolveError::UserContext`, naming the part that is missing. That error has its own code (`PEER-0011`), and its next step names the one fix. Where `XDG_RUNTIME_DIR` is unset, which WSL, containers and plain `ssh` sessions often leave it, the fix is to log in through a session that sets it or to set it (seat 1).
   - A pipe name is `\\.\pipe\` followed by printable ASCII with no further backslash (`PipeName`). The brand manifest's ASCII names and the SID's ASCII text are its only parts, so no comparison ever needs case folding or Unicode handling.
   - `Root` fits only a socket address and `Sid` only a pipe address (`OwnerForPlace`).
-  - Protected takes `Root` or `Sid` and gives `tamper: admin`; User takes `Caller` and gives `tamper: user` (D-48). Anything else is `OwnerForProfile`. This is the only place the grade is set.
+  - `Protected` takes `Root` or `Sid` and gives `tamper: Tamper::Admin`; `User` takes `Caller` and gives `tamper: Tamper::User` (D-48, RFC 0009). Anything else is `OwnerForProfile`. This is the only place the grade is set; per RFC 0009 constraint 2e, no endpoint code in slice 0 produces `Tamper::Platform`, which comes only from a signed `HostProfile` in an embedded build.
   - `service` names the Windows service whose process must serve the pipe. It is required for a Protected pipe, allowed for a User pipe, and refused for a socket address (`Service`).
+  - `resolve` pairs `Address::Socket` with the private `Expectation::Unix` variant (`owner`, `trusted_groups`, `tamper`) and `Address::Pipe` with the private `Expectation::Pipe` variant (`owner`, `service`, `tamper`), so an endpoint's address and expectation always share one platform shape (round 3 m1).
 - **Defaults.** User-profile defaults name the local per-user runtime directory, never the home directory: `$XDG_RUNTIME_DIR` on Linux, and on macOS the directory #1549 settles. A home on a network file system can stall `lstat`, and an inherited or roaming home can carry another account's owner. `UnderHome` stays available as data, with that limit stated.
 - **Stale sockets and uninstall.** In the default units the service manager holds the socket, so it outlives a crash of the daemon.
-  - Where no manager holds it, the daemon at start runs `check_path`. When every node passes, the socket is its own principal's and nobody listens, it removes the socket and binds again.
+  - Where no manager holds it, the daemon at start runs `check_path`. When every node passes, the socket is its own principal's and probing it with `peer_auth::open` over `grdr-ipc-os`'s `Connector` returns `OpenError::Unreachable(LinkFault::Unavailable)` (nobody listens, compliant with amended ARCH-025), it removes the socket and binds again (round 3 m7).
   - A stale socket our own service left is owned by the expected principal, so a client sees `SERVICE_NOT_RUNNING`, never `PathForeign`; only another account's socket is `PathForeign`.
-  - Uninstall removes the socket and every directory the install or the service created, and restores the rest (design/24, journey 4; the uninstall item, filed on acceptance if none owns it) (seat 2).
+  - Uninstall removes the socket and every directory the install or the service created, and restores the rest (design/24, journey 4; covered by #1286 and #1561, verified on acceptance and filed if any path stays unowned) (seat 2).
 
 ### 7. Peer authentication (`grdr_wire::peer_auth`, trust core)
 Identity and observation types (the `Copy`, `Eq` and `Debug` derives are omitted here):
@@ -323,7 +324,7 @@ What each method reads in `grdr-peer-os`, and with which rights:
     - `Opened(Unreadable(fault))` when a read failed, for example through an LSM or EDR denial or `hidepid`.
   - macOS: `LOCAL_PEERTOKEN` and the audit-token readers.
   - Windows: `GetNamedPipeClientProcessId`; `OpenProcess` with `PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE` only, and the handle becomes the hold; the token's SID and integrity level (`TOKEN_QUERY`); the creation time from `GetProcessTimes`; whether the process has exited. `connected` is copied from `PeerRef::PipeServer`; any other peer reference is `Unsupported`.
-- **`message_identity`.** Called only for an identity that awaits it (Windows), after the first frame is read: `ImpersonateNamedPipeClient` at identification level, which any caller may do, then the thread token's SID and integrity level, then `RevertToSelf`. Unix readers answer `Unsupported`, and the decision never calls them. Impersonation takes "the security context of the last message read from the pipe" (https://learn.microsoft.com/en-us/windows/win32/api/namedpipeapi/nf-namedpipeapi-impersonatenamedpipeclient, read 2026-11-20), so it names the connection's own sender, whatever the pid now names.
+- **`message_identity`.** Called only for an identity that awaits it (Windows), after the first frame is read: `ImpersonateNamedPipeClient` at identification level, which any caller may do, then `OpenThreadToken(..., TOKEN_QUERY, OpenAsSelf = TRUE)` inside an RAII guard that calls `RevertToSelf` on drop so the thread token is read under the process security context (`OpenAsSelf = FALSE` fails with `ERROR_BAD_IMPERSONATION_LEVEL` 1346 on an identification token) and restored on every return path, then the token's SID and integrity level (round 3 m3). Unix readers answer `Unsupported`, and the decision never calls them. Impersonation takes "the security context of the last message read from the pipe" (https://learn.microsoft.com/en-us/windows/win32/api/namedpipeapi/nf-namedpipeapi-impersonatenamedpipeclient, read 2026-11-20), so it names the connection's own sender, whatever the pid now names.
 - **`server`.** Runs on the client.
   - Unix: the uid and gid that `SO_PEERCRED`, or `LOCAL_PEERCRED` and the token on macOS, report. These are the credentials of the process that called `listen(2)`, which under socket activation is the service manager.
   - Windows: `GetNamedPipeServerProcessId`, and the pipe instance's owner from `GetSecurityInfo(OWNER_SECURITY_INFORMATION)` on the client's own handle. That read needs only `READ_CONTROL` on the handle (https://learn.microsoft.com/en-us/windows/win32/api/aclapi/nf-aclapi-getsecurityinfo, read 2026-11-20). No process handle is opened.
@@ -350,7 +351,6 @@ pub fn accept<R: PeerReader, A: Acceptor>(reader: &R, acceptor: &A) -> Result<In
 #[non_exhaustive] pub enum Incoming<L: Link> { Pending(PendingPeer<L>), Refused(Refusal), Stopped }
 pub struct PendingPeer<L: Link> { /* private: L, and a state Bound(PeerIdentity) or AwaitsMessage(PeerIdentity) */ }
 impl<L: Link> PendingPeer<L> {
-    pub fn identity(&self) -> &PeerIdentity;
     pub fn first_frame<R: PeerReader, C: Clock>(self, reader: &R, clock: &C, deadline: Monotonic, limits: WireLimits)
         -> Result<(ServerConn<L>, Vec<u8>), FirstFrameError>;
 }
@@ -372,13 +372,13 @@ impl PeerIdentity {
 ```
 - **`open`, in order.**
   1. Read the caller, for a `Caller` owner.
-  2. On a socket address, read the path and decide rows 2 to 6 below, before connecting. A stale socket another account left is therefore `PathForeign`, not `Unavailable`.
-  3. On a Windows endpoint with a service, read the service process.
-  4. Connect, with the time left.
-  5. On a socket address, read the path again. If any node's device, inode, kind, owner, group or mode differs, the result is `PathChanged`.
-  6. Read the server and decide row 7, then read the service process again and decide rows 8 and 9.
-- **`accept`.** Waits on the acceptor, reads the client and decides the server table. It sets the pending state from the observation arm: `Bound` for Linux and macOS, `AwaitsMessage` for Windows. `PendingPeer` allows no I/O, and its state is private (f17, f18). The program moves it to a worker, so a client that connects and sends nothing never holds up the accept loop.
-- **`first_frame`.** Reads the first frame with its deadline (`ipc.first-frame-ms`). For an identity that awaits it, it then reads `message_identity` and requires its SID and integrity level to equal the pending identity's.
+  2. On a socket address, read the path and decide rows 2 to 5 below, before connecting. A stale socket another account left is therefore `PathForeign`, not `Unavailable`.
+  3. On a pipe endpoint whose expectation carries a `service` name, read the service process. That check is never skipped when a pipe endpoint names a service (round 3 m1).
+  4. Connect, with the time left, and check `link.peer()` against `endpoint.address()`: `Socket` or `Memory` for a socket endpoint, `PipeClient` or `Memory` for a pipe endpoint (otherwise row 7).
+  5. On a socket address, read the path again. If any node's device, inode, kind, owner, group or mode differs, the result is `PathChanged` (row 6).
+  6. Read the server and require the `ServerObservation` arm to match `endpoint.address()` (`Unix` for `Address::Socket`, `Windows` for `Address::Pipe`; row 7, never falling through), then decide row 8. On a pipe expectation naming a service, read the service process again and decide rows 9 and 10 (round 3 m1).
+- **`accept`.** Waits on the acceptor, checks that `link.peer()` fits the accept role, reads the client and decides the server table. `PeerRef::Socket` requires `ClientObservation::Linux | Macos` and yields `Bound`; `PeerRef::PipeServer` requires `ClientObservation::Windows` and yields `AwaitsMessage`; `PeerRef::PipeClient` or any arm mismatch between `link.peer()` and `ClientObservation` returns `Incoming::Refused(Refusal::PeerUnverifiable(ReadFault::Unsupported))`; `PeerRef::Memory` (which every real reader refuses with `ReadFault::Unsupported`) yields `Bound` for `Linux | Macos` and `AwaitsMessage` for `Windows`, so `MemNet` tests drive all three OS tables (round 3 m1). `PendingPeer` allows no I/O, exposes no identity before verification completes (round 3 m2), and keeps its state private (f17, f18). The program moves it to a worker, so a client that connects and sends nothing never holds up the accept loop.
+- **`first_frame`.** Reads the first frame with its deadline (`ipc.first-frame`, section 11). For an identity that awaits it, it then reads `message_identity` and requires its SID and integrity level to equal the pending identity's.
   - No path skips the check: a failed read is `PeerUnverifiable` (Coverage), and a difference is `ClientReplaced` (Transient) (M1).
   - The identity then carries the connection's own integrity level, not only that of the process the pid names (m2).
   - Both protocols are client-first, so a connection that sends nothing is closed at that deadline. No frame reaches the program before every check passes.
@@ -394,12 +394,13 @@ impl PeerIdentity {
 | 4 | A node's owner is neither uid 0 nor the expected uid | `PathForeign { at }` | Tamper |
 | 5 | An ancestor is other-writable (a sticky bit does not admit it), or group-writable and not admitted | `PathUnsafe { at, OtherWritable \| GroupWritable }` | Configuration |
 | 6 | Any node differs between the reads before and after connect | `PathChanged` | Transient |
-| 7 | The server principal does not fit the expected principal | `ServerForeign(Principal { seen })` | Tamper |
-| 8 | Windows with a service: both readings are `Valid(p)` with the same `p`, and `p` is not the pipe's server pid | `ServerForeign(NotTheService)` | Tamper |
-| 9 | Windows with a service: the readings differ, or either is `NoValidPid` | `ServiceRestarting` | Transient |
-| 10 | Otherwise | `ClientConn` with the server principal and the endpoint's `tamper` | |
+| 7 | `link.peer()` or `ServerObservation` arm disagrees with `endpoint.address()` (for example `PipeServer` on a client, `Socket` on a pipe endpoint, or `ServerObservation::Windows` on a socket) | `ServerUnverifiable(ReadFault::Unsupported)` | Coverage |
+| 8 | The server principal does not fit the expected principal | `ServerForeign(Principal { seen })` | Tamper |
+| 9 | Windows with a service: both readings are `Valid(p)` with the same `p`, and `p` is not the pipe's server pid | `ServerForeign(NotTheService)` | Tamper |
+| 10 | Windows with a service: the readings differ, or either is `NoValidPid` | `ServiceRestarting` | Transient |
+| 11 | Otherwise | `ClientConn` with the server principal and the endpoint's `tamper` | |
 
-Once row 7 passes, only a holder of the service's SID or of `SeRestorePrivilege`, both above the boundary, can own the pipe. A disagreement between the two readings is therefore a restart racing the check, not an attacker, and every upgrade that races a shim call stays Transient (M2).
+Once row 8 passes, only a holder of the service's SID or of `SeRestorePrivilege`, both above the boundary, can own the pipe. A disagreement between the two readings is therefore a restart racing the check, not an attacker, and every upgrade that races a shim call stays Transient (M2).
 
 The socket's own mode is not checked. Connecting needs write permission on the socket inode, so the Protected socket is world-writable by design; who may replace it is decided by its directories, which rows 2 to 5 check up to the root.
 
@@ -415,6 +416,7 @@ What each system guarantees:
 | Observation | Condition, in order | Outcome | Evidence |
 |---|---|---|---|
 | any | the read fails | `PeerGone` for `Gone`, otherwise `PeerUnverifiable(fault)` | Transient, Coverage |
+| any | `link.peer()` is `PipeClient`, or `link.peer()` and `ClientObservation` disagree in platform (`Socket` with `Windows`, or `PipeServer` with `Linux` or `Macos`) | `PeerUnverifiable(ReadFault::Unsupported)` | Coverage |
 | Linux `Kernel` | | `Atomic` | |
 | Linux `Opened` | `Exited` | `PeerGone` | Transient |
 | | `Unreadable(fault)` | `PeerUnverifiable(fault)` | Coverage |
@@ -427,7 +429,7 @@ What each system guarantees:
 | first frame, `AwaitsMessage` only | `message_identity` fails | `PeerUnverifiable(fault)`, or `PeerGone` for `Gone` | Coverage, Transient |
 | | its SID or integrity level differs from the pending identity's | `ClientReplaced` | Transient |
 
-Every server-side refusal is a client that left, a pid that now names another process, or a read that failed. The client gains nothing from any of them, because its connection is refused, so none is Tamper evidence; repeated `ClientReplaced` shows as a counter. `PIPE_REJECT_REMOTE_CLIENTS` refuses the local-SMB route by which a client pid can be spoofed, so on Windows the first-frame check is defence in depth.
+Every server-side refusal closes the connection, leaving the client to fall back to its table path. The refusal reflects a client that left, a pid that now names another process, or a read that failed, so the client gains nothing from it and none is Tamper evidence. `grdr-daemon` counts consecutive server-side `Transient` refusals per endpoint without an intervening passing verification (`grdr_daemon_peer_transient_refusals`) and raises `peer-unverifiable` once the streak exceeds `limits.toml`'s `endpoint.transient-refusal-threshold` (round 3 m4). `PIPE_REJECT_REMOTE_CLIENTS` refuses the local-SMB route by which a client pid can be spoofed, so on Windows the first-frame check is defence in depth.
 
 A pass yields the pid, the principal (`Uid` of the effective uid, or `Sid`), the binding, the integrity level on Windows and the hold.
 
@@ -447,7 +449,7 @@ What `Confirmed` does not exclude:
 No wait in `grdr-wire`, `grdr-wire-testkit` or `grdr-ipc-os` has the end of the process as its only exit.
 
 ### 9. Error codes
-Areas for `schema/codes/areas.toml`: `WIRE` (IPC framing and local links; design/07, core) and `PEER` (IPC peer authentication; design/02 TM-4, security). Classes and Connect codes are those of design/03 section 10. Every code has a next step. `{cli}` is the CLI name from the brand manifest, an argument of the `fix` token, never a literal (D-66). The `GRDR-` ids belong to the code namespace and stay fixed under a rebrand, so an embedder's support pages can cite them.
+Areas for `schema/codes/areas.toml`: `WIRE` (IPC framing and local links; design/07, core) and `PEER` (IPC peer authentication; design/02 TM-4, security). Classes and Connect codes are those of design/03 section 10, stored in `schema/codes/<area>.toml` using RFC 0007's standard keys only (`number`, `reason`, `status`, `class`, `connect`). The `Evidence` column documents `Refusal::evidence()` in `grdr-wire::peer_auth` (Rule 7). Every code has a next step. `{cli}` is the CLI name from the brand manifest, an argument of the `fix` token, never a literal (D-66). The `GRDR-` ids belong to the code namespace and stay fixed under a rebrand, so an embedder's support pages can cite them.
 
 | Code | Reason | Class | Connect | Bound by | Evidence | Next step (`code.<code>.fix`) |
 |---|---|---|---|---|---|---|
@@ -474,7 +476,7 @@ Areas for `schema/codes/areas.toml`: `WIRE` (IPC framing and local links; design
 | `GRDR-PEER-0010` | `ENDPOINT_CONFIG_INVALID` | fatal | `failed_precondition` | `ResolveError::Spec`, `SidError` | | Correct the endpoint row; `{cli} doctor` names the key |
 | `GRDR-PEER-0011` | `USER_CONTEXT_MISSING` | fatal | `failed_precondition` | `ResolveError::UserContext` | | No per-user runtime directory, home or SID was found; `{cli} doctor` names which, and the one step that sets it |
 
-`WireError::Link`, `OpenError` and `FirstFrameError` take the code of what they carry. A `ReadFault` maps to a `PEER-0001` or `PEER-0008` refusal on the server. On the client the same fault is `PEER-0001` or `PEER-0009`, so each code means one side's failure (F1). Each item registers the codes its area constructs (ARCH-017): #374 registers `WIRE-0002` and `0005` to `0010` and both area rows; #1606 registers `WIRE-0001`, `0003`, `0004` and `0011`; #375 registers the `PEER` codes.
+`WireError::Link`, `OpenError` and `FirstFrameError` implement `Coded` and `LogSafe` by returning the code of what they carry. A `ReadFault` maps to a `PEER-0001` or `PEER-0008` refusal on the server. On the client the same fault is `PEER-0001` or `PEER-0009`, so each code means one side's failure (F1). Each item registers the codes its area constructs (ARCH-017): #374 registers `WIRE-0002` and `0005` to `0010` and both area rows; #1606 registers `WIRE-0001`, `0003`, `0004` and `0011`; #375 registers the `PEER` codes. Under RFC 0010 (ADR-0044), those items are not blocked on #1853 before #1853 adds the token check on `main`, though this table fixes the `code.<code>.fix` text for #1853 or the registering item.
 
 ### 10. What reaches people and the server
 `Refusal::evidence()` decides what a refusal produces, so a misconfiguration never reads as an attack (seats 3 and 4):
@@ -487,29 +489,30 @@ Areas for `schema/codes/areas.toml`: `WIRE` (IPC framing and local links; design
   - The path, uid and SID stay on the device, in the privileged audit log only.
 - **Configuration** (`PathUnsafe`): table path, no marker. The daemon raises the health condition `endpoint-unsafe` once per endpoint (degraded, with a runbook) and keeps it raised until `check_path` passes. `grdr doctor` reports it with the failing node.
 - **Coverage** (`*Unverifiable`): table path, no marker. The coverage condition `peer-unverifiable` is "could not look", never "nothing found" (P9). It is raised once per endpoint and stays raised until a verification on that endpoint passes, since every decision takes the table path while it lasts. Its runbook names the reads that an incumbent endpoint security product must allow.
-- **Transient** (`PeerGone`, `ClientReplaced`, `PathChanged`, `ServiceRestarting`): table path, a counter, nothing else.
+- **Transient** (`PeerGone`, `ClientReplaced`, `PathChanged`, `ServiceRestarting`): table path, a counter, nothing else, except on the server where consecutive server-side `Transient` refusals per endpoint without an intervening passing verification increment `grdr_daemon_peer_transient_refusals`; once that streak exceeds `limits.toml`'s `endpoint.transient-refusal-threshold`, the daemon raises `peer-unverifiable` until a verification passes (round 3 m4).
 
 In standalone use, a solo developer finds tamper findings in `{cli} doctor` and the desktop's findings list. A server adds the console (seat 1).
 
 The table path is the shim's fail-safe table (design/07 section 5; D-14); this RFC adds no other Mode.
 
-`grdr doctor` derives the failing path from `endpoint.address()` and the node index `at`; a refusal never carries a path (seat 6). It shows the path unless the path lies under another account's home or runtime directory. In that case it says "a directory owned by another account", and the detail stays in the privileged audit log. So every system path, which is every Protected endpoint, is shown to an administrator (seat 2). A shown path is a typed `{path :grdr:path}` argument rendered in a left-to-right isolate (UX6). A name that is not valid UTF-8 (Unix) or that holds an unpaired surrogate (Windows) is shown escaped, with a copy action that returns the exact bytes (seat 9).
+`grdr doctor` derives the failing path from `endpoint.address()` and the node index `at`; a refusal never carries a path (seat 6). It shows the path unless the path lies under another account's home or runtime directory, identified from the per-OS platform path tables of design/03 section 9 together with the OS local account database rather than literal prefixes (structure rule S7) (round 3 m6). In that case it says "a directory owned by another account", and the detail stays in the privileged audit log. So every system path, which is every Protected endpoint, is shown to an administrator (seat 2). A shown path is a typed `{path :grdr:path}` argument rendered in a left-to-right isolate (UX6). A name that is not valid UTF-8 (Unix) or that holds an unpaired surrogate (Windows) is shown escaped, with a copy action that returns the exact bytes (seat 9).
 
 The daemon records `Binding` and the endpoint's `tamper` on the session's connection fact (#1536, #25), so a later rule can match a session reached under a weaker binding.
 
 ### 11. References, cases and commands
-Types used from elsewhere, and who settles them:
-- `Monotonic`, `Timestamp` and `Clock { now, monotonic, sleep_until }`: RFC 0002 section 3 (#1688, waiting on the owner).
-- `InstallProfile { Protected, User }` and `Tamper { User, Admin, Platform }`: the RFC of #1710.
-- `LogSafe`: #284. `Coded`: #280.
-- `limits.toml` keys, proposed to #279 with these defaults as data:
-  - `ipc.frame-max`, 2 MiB (R7 there);
-  - `ipc.call-max-ms`, 1,000;
-  - `ipc.read-chunk-bytes`, 65,536;
-  - `ipc.first-frame-ms`, 1,800 (the shim's verdict budget);
-  - `ipc.link-suite-wait-ms`, 100;
-  - `ipc.link-suite-margin-ms`, 250;
-  - `endpoint.connections-max`, 256.
+Types and bounds used from elsewhere, settled by decided RFCs:
+- `Monotonic` (`grdr_model::Monotonic`), `Clock { now, monotonic, sleep_until }` (`grdr_ports::clock::Clock`) and `grdr-os-clock`: RFC 0008 (ADR-0040, #281 and the `grdr-os-clock` items);
+- `Timestamp` (`grdr_model::Timestamp`), `LogSafe` (`grdr_model::LogSafe`, #284), `InstallProfile { Protected, User }` (`grdr_model::InstallProfile`, #1987) and `Tamper { User, Admin, Platform }` (`grdr_model::Tamper`, #1987): RFC 0009 (ADR-0041);
+- `Code` and `Coded` (`grdr_schema::codes::{Code, Coded}`, #278), and the `[bound.<name>]` format of `limits.toml`: RFC 0007 (ADR-0038).
+- `limits.toml` rows (RFC 0007 section 6 naming, no unit words in row names), proposed to #279 with these seed rows as data:
+  - `ipc.frame-max`: `bytes = 2_097_152`, `min = 65_536`, `max = 16_777_216`, `scope = "fixed"`, `effect = "none"`, `owner = "design/07"` (#374 R7);
+  - `ipc.call-max`: `ms = 1_000`, `min = 100`, `max = 2_000`, `scope = "fixed"`, `effect = "none"`, `owner = "design/07"` (kept `fixed`, not a `setting`, so configuration cannot widen the D-14 2,000 ms shim budget);
+  - `ipc.read-chunk`: `bytes = 65_536`, `min = 4_096`, `max = 1_048_576`, `scope = "fixed"`, `effect = "none"`, `owner = "design/07"`;
+  - `ipc.first-frame`: `ms = 1_800`, `min = 100`, `max = 2_000`, `scope = "fixed"`, `effect = "none"`, `owner = "design/07"` (kept `fixed`, not a `setting`, for the same D-14 shim verdict budget);
+  - `ipc.link-suite-wait`: `ms = 100`, `min = 10`, `max = 1_000`, `scope = "fixed"`, `effect = "none"`, `owner = "design/07"`;
+  - `ipc.link-suite-margin`: `ms = 250`, `min = 50`, `max = 2_000`, `scope = "fixed"`, `effect = "none"`, `owner = "design/07"`;
+  - `endpoint.connections-max`: `count = 256`, `min = 16`, `max = 4_096`, `scope = "fixed"`, `effect = "none"`, `owner = "design/11"`;
+  - `endpoint.transient-refusal-threshold`: `count = 5`, `min = 1`, `max = 100`, `scope = "fixed"`, `effect = "none"`, `owner = "design/11"` (consecutive server-side `Transient` refusals before raising `peer-unverifiable`, round 3 m4).
 
 `grdr-wire-testkit` holds `MemLink` (`pair(capacity: NonZeroUsize) -> (MemLink, MemLink)`) and `MemNet` (`new(capacity) -> MemNet`, both a `Connector` and an `Acceptor`). A test that needs invented observations writes its own `PeerReader`, which ARCH-028 allows in test targets. `local::conformance` stays in `grdr-wire`, because it must call seam methods and only `grdr-wire` holds the tokens:
 ```rust
@@ -534,7 +537,7 @@ The cases:
 
 Running them on a new link, inside `grdr-ipc-os`'s own test. The test builds the pair with the crate's own constructors, because it cannot call the seams:
 ```rust
-let limits = SuiteLimits { wait: Duration::from_millis(100), margin: Duration::from_millis(250) }; // the two suite keys
+let limits = SuiteLimits { wait: Duration::from_millis(100), margin: Duration::from_millis(250) }; // production callers read ipc.link-suite-wait and ipc.link-suite-margin from grdr_schema::limits
 let dir = tempdir_for_this_test();                       // the test's own scratch directory
 let make_pair = || {
     let path = dir.join("suite.sock");
@@ -561,20 +564,22 @@ Commands:
   - every `PidfdSource` and `OpenedReading` arm;
   - every pair of `ServiceProcess` readings;
   - the Windows `exited` and ordering cases;
+  - mismatches between endpoint address kind, `PeerRef` arm, `ClientObservation` arm and `ServerObservation` arm (including `PeerRef::PipeClient` in `accept`, a pipe endpoint whose service check must run, and cross-OS observations), each asserted to yield `Unsupported` coverage refusal without falling through (round 3 m1);
   - a message identity that is equal, that differs in SID, that differs in integrity, and that cannot be read. An identity that awaits a message is never accepted without one (M1).
 
   The test asserts that it enumerated as many combinations as the product of the domain sizes.
+- `cargo test --locked -p grdr-wire -- --nocapture` (`#375` unit suite and `grdr-daemon` tests in `#683`/`#684`/`#1536`): asserts that every `Refusal` variant's `evidence()` agrees with its `code().class()` (Rule 7), and that consecutive server-side `Transient` refusals exceeding `endpoint.transient-refusal-threshold` raise `peer-unverifiable` until a verification passes (round 3 m4).
 - `cargo test --locked -p grdr-wire --doc`: a `compile_fail` doctest for each attempt of section 12 that must fail.
-- `grdr-peer-os`'s kernel tests (#375 AC-2 to AC-4, #1549 AC-2 and AC-3, #555 AC-2 and AC-3) drive `open` and `accept` with the real reader. They run over a test link and acceptor that each test builds with std sockets or its own pipe calls, which ARCH-028 allows in test targets, so no layer 3 crate depends on another. Each fixture states the refusal it expects from the tables of section 7, read against kernel facts the test reads independently through system tools. No export of the reference model is needed (F8).
+- `grdr-peer-os`'s kernel tests (#375 AC-2 to AC-4, #1549 AC-2 and AC-3, #555 AC-2 and AC-3) drive `open` and `accept` with the real reader, including #555's standard-user identification-token test asserting `OpenAsSelf = TRUE` (round 3 m3). They run over a test link and acceptor that each test builds with std sockets or its own pipe calls, which ARCH-028 allows in test targets, so no layer 3 crate depends on another. Each fixture states the refusal it expects from the tables of section 7, read against kernel facts the test reads independently through system tools. No export of the reference model is needed (F8).
 - Each reader's suite adds a fixture with a non-ASCII home or runtime path: a Japanese user name, an NFD accent on macOS, an Arabic folder name on Windows (seat 9). None of the decision rows compares paths, since the executable rules are gone.
 
 ### 12. Compile sketch
-The sketch is on #1757 in three parts:
+The compile sketch posted on #1757 covers revision 3, in three parts:
 - Part 1, `grdr_wire.rs`: https://github.com/416rehman/Guardrails/issues/1757#issuecomment-7056002171
 - Part 2, `grdr_wire_testkit.rs`, `adapter.rs` and `build.sh`: https://github.com/416rehman/Guardrails/issues/1757#issuecomment-7056002529
 - Part 3, `program.rs` and the `forge/` files: https://github.com/416rehman/Guardrails/issues/1757#issuecomment-7056002830
 
-`bash build.sh` uses `rustup run 1.99.1 rustc --edition 2024`, with `#![forbid(unsafe_code)]` in every library crate. From a clean directory on Windows:
+`bash build.sh` ran `rustup run 1.99.1 rustc --edition 2024` on that revision 3 sketch, with `#![forbid(unsafe_code)]` in every library crate, from a clean directory on Windows:
 - **Library crates.** `grdr_wire`, `grdr_wire_testkit` and `adapter` (the stand-in for `grdr-ipc-os` and `grdr-peer-os`, using public items only) each exit 0 on `x86_64-pc-windows-msvc`. With `--emit=metadata` they also exit 0 on `x86_64-unknown-linux-gnu` and `aarch64-apple-darwin`.
 - **Program.** `program` builds and runs with exit 0 and prints `program: 39 checks passed`. The checks cover:
   - both suites on `MemLink` and `MemNet`;
@@ -584,7 +589,7 @@ The sketch is on #1757 in three parts:
   - every server row, including a status read that fails (Coverage), a pid that names another uid (Transient), and the first-frame identity check: a mismatch, a lower integrity level, and a read that fails, which is refused and never skipped;
   - an unset runtime directory (`USER_CONTEXT_MISSING`);
   - a boundary timeout that leaves a connection usable, and `FrameTooLarge` breaking it.
-- **Forgery attempts, each its own crate.**
+- **Revision 4 delta.** Relative to that revision 3 sketch, revision 4 removes `PendingPeer::identity` (`pending.identity()` joins `f17` as `E0599`, round 3 m2), enforces `PeerRef` and observation arm matching in `open` and `accept` (round 3 m1), notes `OpenAsSelf = TRUE` in the Windows reader's `message_identity` contract (round 3 m3), aligns `limits.toml` row names with RFC 0007 and adds `endpoint.transient-refusal-threshold` (round 3 m4), and takes `Coded` from `grdr-schema` and `Monotonic`, `Timestamp`, `Clock`, `LogSafe`, `InstallProfile` and `Tamper` from RFC 0008 and RFC 0009. The revision 3 forgery cases `f01` to `f21` and `G2` to `G2c` stay unchanged in shape:
 
 | # | Attempt | Result |
 |---|---|---|
@@ -616,17 +621,17 @@ The sketch is on #1757 in three parts:
 | G3 | a program-defined `Connector` and `PeerReader` passed to `open` | exit 0: open to the types, closed by ARCH-028 |
 
 ### 13. Stability and later change
-- **Classes.** Both crates enter `surfaces.toml` as `experimental` (ADR-0020; design/03 section 7), through the protected-change item filed on acceptance.
+- **Classes.** Both crates enter `surfaces.toml` as `experimental` `[[crate]]` rows (ADR-0020, RFC 0005 section 7.1; design/03 section 7), through the protected-change item filed on acceptance.
 - **What an embedder may rely on now.** The frame format (a 4-byte little-endian length, then the body) is the local IPC contract of design/03 section 7: restated here, not changed. The shim and the daemon tolerate one release of skew. The seams and proofs are experimental: they change in any release, but only by an amendment that names RFC 0003, listed in the release notes.
 - **What needs no RFC.** A change of documentation wording that changes no contract. Everything else is an amendment, including a suite case and a decision row, and one amendment may carry every change that is ready at once.
-- **Promotion to `beta`.** By RFC, when the endpoint packages freeze (design/03 section 7). The prerequisites are the three readers and the `grdr-ipc-os` links passing their items on the hosted cells, and questions 1 to 3 settled.
+- **Promotion to `beta`.** By RFC, when the endpoint packages freeze (design/03 section 7). The prerequisites are the three readers and the `grdr-ipc-os` links passing their items on the hosted cells, and questions 1 and 2 settled (questions 3 and 4 are settled in revision 4).
 - **Adding a platform** (seat 7). An in-tree change to `grdr-peer-os` and `grdr-ipc-os` for the reader and links, plus an amendment that adds the observation, `PeerRef` and `ProcessHold` arms and their decision rows to `grdr-wire`. That module is trust core, so the change takes the high-tier evaluators (D-63). The reader, the links and the rows may land in one pull request. On an unlisted OS, `grdr-wire` builds, but `ProcessHold` has no constructor and `grdr-peer-os` has no reader. A program that needs a reader therefore does not build there, which is a refusal at build time, not a silent pass.
 - **An embedder's own transport** (seat 5).
   - An embedder may ship its own `Link`, `Connector` and `Acceptor` crate, backed by a std descriptor or handle, since those are the only OS arms of `PeerRef`. A link over any other transport needs an amendment.
   - `dist.toml` is the distribution manifest of design/03 (Interfaces). #1593 creates it, and the ARCH-028 item adds its `links` table. The distribution build admits it when `dist.toml` lists it among its `links` and the build runs `check_links` and `check_acceptor` on it with its own fixture, as RFC 0002 does for storage adapters. ARCH-028 reads that list as data, so admitting a link is not a code change in this repository.
   - A `PeerReader` is never admitted from `dist.toml`, because the reader is what a proof rests on. An embedder that authenticates its own way reuses `frame` and its own connections, and does not mint our proofs.
 - **Amendments expected, each with its item:**
-  - an async driver over the same codec and proofs, once an async runtime is admitted to design/03 section 13;
+  - an async driver over the same codec, proofs and `grdr_ports::clock::Clock::sleep_until` (RFC 0008), once an async runtime is admitted to design/03 section 13;
   - the `Dialer` with the uplink (24 section 3);
   - adopting inherited connections after the handover `exec` of design/11 section 8, as `accept` over an inherited-descriptor acceptor;
   - inherited child channels (#427), with a server row that the peer is the spawned child;
@@ -635,30 +640,33 @@ The sketch is on #1757 in three parts:
 ### 14. Mechanisms
 | Decision | Mechanism | Built by |
 |---|---|---|
-| Rule 1 | The edges and an empty third-party allow-list for `grdr-wire` in `architecture.toml`. ARCH-027 fails any raw OS binding in `grdr-wire` | #1751; the entries are a protected change filed on acceptance |
+| Rule 1 | The `grdr-wire` to `grdr-ports` (`Clock` only) and `grdr-wire-testkit` to `grdr-wire` edges, plus empty third-party allow-lists for `grdr-wire` and `grdr-wire-testkit` in `architecture.toml`. ARCH-027 fails any raw OS binding in `grdr-wire`, while `grdr-ipc-os` and `grdr-peer-os` sit in the OS adapter list | #1751; the entries are a protected change filed on acceptance |
 | Rule 2 | ARCH-007 through `cargo public-api` against `surfaces.toml` | The `surfaces.toml` item filed on acceptance |
 | Rule 3, calls | Per-seam tokens, held by the type system; `compile_fail` doctests for f02 to f05, f13 to f15, G2, G2b and G2c | #374 |
 | Rule 3, implementations | ARCH-028 `wire-seams` over the workspace and the distribution closure, with the crate list in `architecture.toml` and `dist.toml`'s `links` | A lint item filed on acceptance, blocking #377, #516, #683, #684 and #1745; #1593 for the closure run |
-| Rule 4 | Private fields and `pub(crate)` constructors; doctests f01, f06 to f12, f16 | #375, #1606 |
-| Decision tables | The reference model and the exhaustive differential (section 11) | #375 |
+| Rule 4 | Private fields and `pub(crate)` constructors; doctests f01, f06 to f12, f16 to f18 (`pending.identity()` removed included) | #375, #1606 |
+| Decision tables | The reference model and the exhaustive differential (section 11, including arm mismatches, round 3 m1) | #375 |
 | Rule 5, section 8 | `read_times_out`, `one_nanosecond`, `accept_stop` on every link and acceptor; the connection timeout cases; a connect against a full backlog on Linux and a busy pipe on Windows | #374, #1606, the `grdr-ipc-os` link item |
-| Rule 7 | `Coded` with an exhaustive match, the registry, ARCH-017 | #280, #278, #374, #375, #1606 |
-| Section 10 | The marker record and its deduplication; the two conditions and their runbooks | #1574; the marker-to-finding item; #375 for the conditions' codes |
-| One path rule | `check_path` called by the daemons (#683, #1745) | `eval-architecture`, on each of those pull requests |
-| `grdr-wire-testkit` in no layer 4 program's normal closure | The archlint graph rule over the `test-support` list in `architecture.toml`, the rule RFC 0002 Rule 1 gives `grdr-ports-testkit` | #1580 reads the list; the entry is a protected change filed on acceptance |
-| One evidence source (Rule 7) | `evidence()` generated from the registry's `evidence` column, and a test over every `Refusal` variant | #375, #278 |
-| Stability | The `surfaces.toml` entries, `rfc-required`, `cargo semver-checks` | The protected-change item filed on acceptance |
+| Rule 7 | `Coded` (#278, RFC 0007) with an exhaustive match, `LogSafe` (#284, RFC 0009) and the log-gate scan (#1989, #1990), the code registry, ARCH-017 | #278, #284, #374, #375, #1606 |
+| Section 10 | The marker record and its deduplication; `endpoint-unsafe` and `peer-unverifiable` with their runbooks; the daemon transient-refusal streak counter and `endpoint.transient-refusal-threshold` (round 3 m4) | #1574; the marker-to-finding item; #375 for the conditions' codes; #683, #684 and #1536 for the counter and escalation |
+| One path rule | `check_path` called by the daemons (#683, #1745) and `peer_auth::open` stale-socket probe (round 3 m7) | `eval-architecture`, on each of those pull requests |
+| `grdr-wire-testkit` in no layer 4 program's normal closure | The archlint graph rule over the `test-support` list in `architecture.toml`, matching RFC 0008 R1 for `grdr-ports-testkit` | #1580 reads the list; the entry is a protected change filed on acceptance |
+| One evidence source (Rule 7) | `Refusal::evidence(&self)` as one exhaustive match in `grdr-wire::peer_auth` (keeping `schema/codes/peer.toml` free of extra keys per RFC 0007) and a test over every `Refusal` variant agreeing with `code().class()` | #375 |
+| `InstallProfile`, `Tamper` and `limits.toml` rows | `grdr_model::InstallProfile` and `Tamper` (RFC 0009 constraints 2a and 2e) and the eight `[bound.*]` rows (RFC 0007 section 6) | #1987, #279 |
+| Stability | The `[[crate]]` rows in `surfaces.toml`, `rfc-required`, `cargo semver-checks` | The protected-change item filed on acceptance |
 
-### 15. Proposed changes to design documents, `architecture.toml` and the ruling on #1743
+### 15. Proposed changes to design documents, `architecture.toml` and ADR-0045
 Each lands through an issue whose write set names its file, after acceptance.
-- **design/03 section 2.**
-  - The `grdr-wire` row: "IPC and uplink framing, size caps, the local link, connector, acceptor and peer-reader seams, the peer-authentication decision, and the `Dialer`".
-  - New rows: `grdr-wire-testkit` (layer 2) and `grdr-ipc-os` (layer 3, endpoint, trust core under IPC peer authentication).
-  - The same-layer edges gain `grdr-wire` to `grdr-ports` (unless question 4 removes it) and `grdr-wire-testkit` to `grdr-wire`.
-  - ARCH-025 reads: "Outbound network connections are opened only through `grdr-wire`'s `Dialer`; local endpoint connections only through `peer_auth::open` over a `Connector` of `grdr-ipc-os`." The lint fails a socket connect or a pipe open anywhere else. Local IPC is not egress, so `grdr egress` does not list it (F7).
-  - A new row adds ARCH-028 `wire-seams`. This table is the one register of lint numbers. Until it is amended, the assignment is recorded on #1688 (https://github.com/416rehman/Guardrails/issues/1688#issuecomment-7056005677): ARCH-027 `os-adapter-only` (#1751), ARCH-028 `wire-seams` (this RFC), ARCH-029 `context-mint` (RFC 0002) (m5).
+- **design/03 section 2, section 10 (`Unsafe`) and section 11 (`crates/`).** `#2011` (`33402fb`) already recorded `grdr-os-service`, `grdr-peer-os` and `ARCH-027` in those sections; the remaining amendments for this RFC are:
+  - Update the `grdr-wire` row: "IPC and uplink framing, size caps, the local link, connector, acceptor and peer-reader seams, the peer-authentication decision, and the `Dialer`", and align the `grdr-peer-os` row wording with `PeerReader` and `grdr-wire::peer_auth`.
+  - Add rows: `grdr-wire-testkit` (layer 2, public, core) and `grdr-ipc-os` (layer 3 OS adapter crate, `endpoint` squad, trust core under IPC peer authentication, exchanging std types with `grdr-os-service` so `ARCH-002` holds).
+  - Add `grdr-ipc-os` to section 10's layer 3 OS adapter list (`ARCH-027`, `unsafe_code = "deny"`, reasoned `#[allow(unsafe_code)]`, `// SAFETY:` comments) and section 11's `crates/` `endpoint` squad trust-core list beside `grdr-os-service` and `grdr-sandbox-engine`.
+  - Add the same-layer edges `grdr-wire` to `grdr-ports` (`Clock` only, settled by RFC 0008 / ADR-0040) and `grdr-wire-testkit` to `grdr-wire`.
+  - Amend ARCH-025 (`one-dialer`) to read: "Outbound network connections are opened only through `grdr-wire`'s `Dialer`; local endpoint connections only through `peer_auth::open` over a `Connector` of `grdr-ipc-os`." The lint fails a socket connect or a pipe open anywhere else. Local IPC is not egress, so `grdr egress` does not list it (F7).
+  - Add a row for ARCH-028 `wire-seams`. This table is the one register of lint numbers: ARCH-027 `os-adapter-only` (added by #2011, implemented by #1751), ARCH-028 `wire-seams` (this RFC), ARCH-029 `context-mint` (registered in #1688, https://github.com/416rehman/Guardrails/issues/1688#issuecomment-7056005677) (m5).
+  - Amend section 2 work-breakdown row **C4** (`"a socket opened outside the Dialer fails archlint"`) to name both routes of amended ARCH-025: outbound network through `grdr-wire`'s `Dialer` and local endpoints through `peer_auth::open` over `grdr-ipc-os`'s `Connector` (round 3 m5).
 - **design/03 section 9.** The endpoint table keys are `security`-tagged and organisation-scoped (section 6).
-- **design/24 section 3, line 132, and work item 24-10.** "Every outbound connection a product process makes goes through the `Dialer`" becomes "every outbound network connection". The lint sentence and 24-10's criterion ("a socket opened outside the `Dialer` fails archlint") name both routes of the new ARCH-025: network through the `Dialer`, local endpoints through `peer_auth::open` (m6).
+- **design/24 section 3, line 132, and work item 24-10.** "Every outbound connection a product process makes goes through the `Dialer`" becomes "every outbound network connection". The lint sentence and 24-10's criterion ("a socket opened outside the `Dialer` fails archlint") name both routes of the amended ARCH-025: network through the `Dialer`, local endpoints through `peer_auth::open` (m6).
 - **design/03 section 10.** The `Clock` rule gains its one exception: the Windows pipe connect stamp, compared only with a process creation time (Rule 5).
 - **design/07 section 2, "Peer checks, both directions".**
   - The client checks every component of the endpoint path from the root and refuses a symlink anywhere on it. It never checks the socket's mode.
@@ -670,66 +678,68 @@ Each lands through an issue whose write set names its file, after acceptance.
   - #464 is answered by this text.
 - **design/11 section 1, named endpoints.** The client check is RFC 0003's client table. The daemon runs the same path rule at start through `check_path`.
 - **design/11 section 14.** A Windows endpoint's DACL grants clients only `FILE_READ_DATA | FILE_WRITE_DATA | FILE_READ_ATTRIBUTES | READ_CONTROL | SYNCHRONIZE`, never `FILE_CREATE_PIPE_INSTANCE` or `FILE_GENERIC_WRITE`. The owner is set to the service's SID. `PIPE_REJECT_REMOTE_CLIENTS` stays on every instance: it refuses the local-SMB route by which a client pid can be spoofed.
-- **`architecture.toml`.** The edges, the empty allow-list, the two new crates, and the ARCH-028 list.
-- **The decision record of #1743.**
-  - `grdr-ipc-os` holds every local link, connector and acceptor.
-  - `grdr-os-service` keeps the service seam and hands over listeners and pipe instances as std types.
-  - The untrusted programs link `grdr-ipc-os` and `grdr-peer-os`, never `grdr-os-service` (section 2).
+- **`architecture.toml`.** The `[crates.grdr-wire-testkit]` and `[crates.grdr-ipc-os]` entries (alongside #1749's `grdr-os-service` and `grdr-peer-os`), adding `grdr-ipc-os` to the OS adapter list (ARCH-027) and `grdr-wire-testkit` to the test-support list, adding the same-layer edges `grdr-wire` to `grdr-ports` (`scope = "Clock trait only"`, `paths = ["grdr_ports::clock"]`) and `grdr-wire-testkit` to `grdr-wire`, the empty third-party allow-list for `grdr-wire`, and the ARCH-028 crate list.
+- **`docs/decisions/ADR-0045-daemon-os-calls.md` (currently `Status: proposed`, from #1743 and #1671).** Refine ADR-0045 with three changes when it is updated or accepted:
+  - `grdr-ipc-os` (layer 3 OS adapter crate, `endpoint` squad, trust core under IPC peer authentication, under ARCH-027 alongside `grdr-os-service`, `grdr-peer-os` and `grdr-sandbox-engine`) holds every local `Link`, `Connector` and `Acceptor`;
+  - `grdr-os-service` keeps the service seam, signals, child process handles and endpoint listener adoption and pipe instance creation, handing `UnixListener`, `OwnedFd` and `OwnedHandle` to `grdr-ipc-os` through `grdr-daemon`, while `grdr-hook`, `grdr` and `grdr-tray` link `grdr-ipc-os` and `grdr-peer-os` and never `grdr-os-service` (section 2);
+  - `grdr-wire::peer_auth` exposes `PeerReader`, `open`, `accept`, `PendingPeer::first_frame`, `check_path` and `resolve` instead of `PeerVerifier` and `EndpointVerifier`.
 
 ### 16. What each item changes
 This RFC is normative. Each lead writes these changes back into its item before readying it.
-- **#374.** Keeps `frame`, the seams, the tokens, `WireLimits` and `local::conformance`. It registers `WIRE-0002` and `0005` to `0010` and both area rows. Its socket client and server move to `grdr-ipc-os`, and its resolver to #375. R2 loses "decode error". R4's traits become the seams. AC-4 (`SO_PEERCRED`) moves to the Linux reader. AC-5 becomes the token doctests and AC-6 runs on `MemNet`. Blocked by #281 (`Clock`) and the `grdr-wire-testkit` scaffold.
-- **#1606.** Re-scoped to the connections of section 5, `WIRE-0001`, `0003`, `0004` and `0011`, and `MemLink` and `MemNet` in `grdr-wire-testkit`. Blocked by #374 and #375. Its macOS and Windows transports move to the `grdr-ipc-os` link item.
+- **#374.** Keeps `frame`, the seams, the tokens, `WireLimits` and `local::conformance`. It registers `WIRE-0002` and `0005` to `0010` and both area rows in `schema/codes` (under RFC 0007 and RFC 0010, without blocking on #1853 before #1853 lands). Its socket client and server move to `grdr-ipc-os`, and its resolver to #375. R2 loses "decode error". R4's traits become the seams. AC-4 (`SO_PEERCRED`) moves to the Linux reader. AC-5 becomes the token doctests and AC-6 runs on `MemNet`. Blocked by #278 (`Coded`), #279 (`limits.toml`), #281 (`Clock`), #284 (`LogSafe`) and the `grdr-wire-testkit` scaffold.
+- **#1606.** Re-scoped to the connections of section 5, `WIRE-0001`, `0003`, `0004` and `0011` (under RFC 0007 and RFC 0010), and `MemLink` and `MemNet` in `grdr-wire-testkit`. Blocked by #374 and #375. Its macOS and Windows transports move to the `grdr-ipc-os` link item.
 - **#375.** The lead splits it in two.
-  - (a) `peer_auth` in `grdr-wire`: the types, `PeerReader`, `resolve`, `open`, `accept`, `PendingPeer`, `check_path`, the evidence, the reference model and the differential, and the `PEER` codes in `schema/codes/peer.toml`.
+  - (a) `peer_auth` in `grdr-wire`: the types, `PeerReader`, `resolve`, `open`, `accept`, `PendingPeer` (with no `identity` accessor before `first_frame`, round 3 m2), `check_path`, arm-compatibility enforcement (round 3 m1), `Refusal::evidence()` exhaustive match with the test asserting parity against `code().class()` (Rule 7), `FirstFrameError` implementing `Coded` and `LogSafe`, the reference model and differential (including arm mismatches, round 3 m1), and the `PEER` codes in `schema/codes/peer.toml` (standard RFC 0007 keys only, no `evidence` column). Blocked by #1987 (`InstallProfile` and `Tamper`), #278 (`Coded`), #284 (`LogSafe`) and #279 (`limits.toml`); honours RFC 0009 constraints 2a and 2e.
   - (b) The Linux reader in `crates/grdr-peer-os/src/linux/**`: `caller` with the primary gid, `client`, `server` as the listener's ids, and `path` with device and inode.
   - The table changes: `EndpointMode` goes; ancestors are checked to the root; `PeerUid` becomes `ServerForeign`; `CredentialMismatch` goes, since a pid that names another process is `ClientReplaced`; the refusal set is section 7's; uids are effective.
 - **#1549.** Moves to `crates/grdr-peer-os/src/macos/**` and implements the reader for macOS. R1's token lookup becomes a concrete `grdr-peer-os` function over `&ProcessHold`. R2's executable check goes. On the macOS runner it records which credentials the client side reads when launchd created the listener, and the owner, group and mode of the per-user runtime directory and of `/private/var/run` (questions 1 and 2).
 - **#555.** Moves to `crates/grdr-peer-os/src/windows/**`.
   - `client` per section 7, with `PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE` only.
-  - `message_identity` through identification-level impersonation, with the token's SID and integrity level.
+  - `message_identity` through identification-level impersonation, `OpenThreadToken(..., TOKEN_QUERY, OpenAsSelf = TRUE)` inside an RAII `RevertToSelf` guard, with a standard-user identification-token test case ensuring `OpenAsSelf = FALSE` fails the test (round 3 m3).
   - `server` as `GetNamedPipeServerProcessId` and the pipe owner, with a runner case asserting that the call works on a client handle on every supported build (m1).
   - `service_process` through the SCM, `Valid` only in the states section 7 lists.
   - R1's re-read of the pid gives way to the creation-time and first-frame rows. R2's image check gives way to the service pid. R4's QoS refusal goes, since no call reads it back; the connector always sets it and `grdr-ipc-os`'s test proves the server gets only an identification-level token.
   - `ServerIdentity` becomes `ServerForeign`. A denied open is `PeerUnverifiable(Denied)`.
-- **#683.** R2 calls `check_path`. R3 is `accept` then `first_frame`. The listeners `grdr-os-service` adopts are handed as `UnixListener` to `grdr-ipc-os`'s Unix acceptor, whose `stop` the daemon calls.
-- **#684.** R6 creates every pipe instance in `grdr-os-service`, with the flags, DACL rights and owner of sections 2 and 15. The daemon builds `grdr-ipc-os`'s pipe acceptor with an instance source that calls it, and the acceptor stamps `connected_at` first. R3 is `accept` then `first_frame`. The Windows `Connector` is `grdr-ipc-os`'s.
+- **#683.** R2 calls `check_path`, then probes a non-manager stale socket with `peer_auth::open` over `grdr-ipc-os` (round 3 m7). R3 is `accept` then `first_frame`. The listeners `grdr-os-service` adopts are handed as `UnixListener` to `grdr-ipc-os`'s Unix acceptor, whose `stop` the daemon calls. Tracks `grdr_daemon_peer_transient_refusals` per endpoint and raises `peer-unverifiable` past `endpoint.transient-refusal-threshold` (round 3 m4).
+- **#684.** R6 creates every pipe instance in `grdr-os-service`, with the flags, DACL rights and owner of sections 2 and 15. The daemon builds `grdr-ipc-os`'s pipe acceptor with an instance source that calls it, and the acceptor stamps `connected_at` first. R3 is `accept` then `first_frame`, with the same transient-refusal streak counter and escalation (round 3 m4). The Windows `Connector` is `grdr-ipc-os`'s.
 - **#1724.** The service reports RUNNING to the SCM before it serves its pipe (section 7, `service_process`).
 - **#372.** No change. `grdr-wire` never decodes the body, so R3's wrapper is decoded by the receiver through `grdr-proto`.
 - **#24.** The sub-issue table follows the splits above. AC-3 becomes `cargo run --locked -p grdr-archlint -- check`.
 - **#464.** Closed by this RFC's decision (section 15).
 
 Filed on acceptance, each linked as it blocks:
-- the `grdr-ipc-os` scaffold, with its `architecture.toml`, `owners.toml` and `trust-core.paths` rows;
+- the `grdr-ipc-os` scaffold (alongside #1749's `grdr-os-service` and `grdr-peer-os`), with its `architecture.toml`, `owners.toml` and `trust-core.paths` rows;
 - the `grdr-wire-testkit` scaffold;
 - the `grdr-ipc-os` link item (endpoint), blocking #377, #516, #683, #684 and #1745;
 - the ARCH-028 lint item (core);
 - the marker-to-finding item;
-- the `surfaces.toml` and `architecture.toml` entries;
-- the design amendments of section 15;
-- the `limits.toml` keys of section 11, through #279.
+- the `surfaces.toml` (`[[crate]]`) and `architecture.toml` entries;
+- the design and ADR-0045 amendments of section 15;
+- the `limits.toml` seed rows of section 11, through #279 (including `endpoint.transient-refusal-threshold`);
+- verification that #1286 and #1561 cover uninstall removal of daemon sockets and created service directories on every OS, filing an item if any cleanup path is unowned (seat 2).
 
 Downstream:
-- #377 and #516 call `resolve`, `open` and `ClientConn`, and write the marker only for `Evidence::Tamper`; #516 R1's own resolver goes.
+- #377 and #516 call `resolve` (only with a decided `InstallProfile`, RFC 0009 constraint 2a), `open` and `ClientConn`, write the marker only for `Evidence::Tamper`, and never produce `Tamper::Platform` (constraint 2e); #516 R1's own resolver goes. Programs read time through `grdr-os-clock`.
 - #1745 adopts listeners into the Unix acceptor.
 - #1749 R1: `grdr-os-service` hands over std types and holds no links.
-- #1710 adds `InstallProfile` and `Tamper`.
-- #1536 and #25 record `Binding` and `tamper` on the connection fact.
+- #1987 adds `InstallProfile` and `Tamper` to `grdr-model` (RFC 0009 section 8, ADR-0041).
+- #1536 and #25 record `Binding` and `tamper` on the connection fact, and #1536 enforces the server-side `grdr_daemon_peer_transient_refusals` escalation (round 3 m4).
 - #157 reads `integrity`.
 - #1636's pages list every variant bound to a code.
 
 ## Surfaces changed
 - `grdr-wire` (layer 2, public): modules `frame`, `local` (with `local::conformance`) and `peer_auth`. Class `experimental`.
 - `grdr-wire-testkit` (layer 2, public): `MemLink` and `MemNet`. Class `experimental`.
-- New same-layer edges: `grdr-wire` to `grdr-ports`, and `grdr-wire-testkit` to `grdr-wire`.
-- `grdr-model` (layer 1, public): `InstallProfile` and `Tamper`, entering through the RFC of #1710.
-- Data and gate files, as proposals: two code areas and 22 codes in `schema/codes`; entries in `surfaces.toml` and `architecture.toml`; `security`-tagged endpoint keys in the configuration schema.
+- Dependencies: downward dependencies of `grdr-wire` on `grdr-schema` (layer 0) and `grdr-model` (layer 1); new same-layer edges `grdr-wire` to `grdr-ports` (`Clock` only, settled by RFC 0008 / ADR-0040) and `grdr-wire-testkit` to `grdr-wire`.
+- `grdr-model` (layer 1, public): `InstallProfile` and `Tamper`, stated by accepted RFC 0009 (ADR-0041) and built by #1987.
+- `grdr-ipc-os` (layer 3, internal OS adapter crate): local links, connectors and acceptors (`endpoint` squad, trust core under IPC peer authentication, listed alongside `grdr-os-service` and `grdr-peer-os`).
+- Data and gate files, as proposals: two code areas and 22 codes in `schema/codes` (standard RFC 0007 keys only); 8 `[bound.*]` rows in `limits.toml`; entries in `surfaces.toml` (`[[crate]]`), `architecture.toml`, `security/trust-core.paths` and `dist.toml`; `security`-tagged endpoint keys in the configuration schema; design/03 (`ARCH-025`, `ARCH-028`, row C4), design/07, design/11, design/24 and ADR-0045 amendments.
 - No spine text, no protobuf package and no frame format changes.
 
 ## Alternatives
 - **Verifier traits that the security module implements (#374 R4 as written).** Any crate could mint proofs. Rejected for `open` and `accept` over a reader seam.
 - **Readers that decide and return neutral facts.** The decision would move into `grdr-peer-os`, against #1757 R3. Rejected.
-- **A sealed reader trait, so the types alone close G1.** Rust visibility cannot admit one outside crate and refuse the rest. The reader must live in `grdr-peer-os` (the ruling on #1671), so ARCH-028 carries that route, and Rule 3 says so.
+- **A sealed reader trait, so the types alone close G1.** Rust visibility cannot admit one outside crate and refuse the rest. The reader must live in `grdr-peer-os` (ADR-0045, the ruling on #1743 and #1671), so ARCH-028 carries that route, and Rule 3 says so.
 - **One call token for every seam (revision 1).** An implementer of one seam could call the others (G2). Rejected for one token per seam.
 - **The shim opens the service's process to read its SID and image (#555 R2).** A standard user is refused (F1; the section 7 probe). Rejected for the pipe owner and the SCM pid.
 - **An executable check through peer credentials on Unix (design/07 L67).** The kernel names the process that called `listen(2)`. Under activation that is the service manager, so the check cannot pass. Rejected; the principal that listened is the guarantee.
@@ -761,14 +771,15 @@ Downstream:
 ## Unresolved questions
 1. **macOS credentials under launchd.** Which credentials the client reads when launchd created the listener. Lean: as on Linux, the listener's creator. Settled by #1549's evidence; it changes no row.
 2. **The macOS per-user runtime directory and `/private/var/run` under the ancestor rule.** Settled by #1549's evidence. A group-writable system directory is admitted only through `trusted_groups` data.
-3. **`InstallProfile` and `Tamper` in `grdr-model`.** Asked on #1710.
-4. **`Clock`.** Lean: RFC 0002 is decided with `Clock` in `grdr-model`, re-exported by `grdr-ports`, which removes Rule 1's edge. Until RFC 0002 is decided, this RFC cannot be accepted, whichever way it goes.
+3. **`InstallProfile` and `Tamper` in `grdr-model`.** Settled by accepted RFC 0009 (ADR-0041): both live in `grdr-model`, built by #1987, and callers pass `resolve` only a decided profile (constraint 2a) and never produce `Tamper::Platform` in slice 0 (constraint 2e).
+4. **`Clock` and `Monotonic`.** Settled by accepted RFC 0008 (ADR-0040): `Monotonic` lives in `grdr-model`, `Clock` stays in `grdr-ports` (`grdr_ports::clock::Clock`), and `grdr-os-clock` provides the OS adapter; Rule 1's same-layer edge `grdr-wire` to `grdr-ports` (`Clock` only) stands.
 5. **Not checked here:**
    - macOS behaviour; no macOS host.
    - The Windows message check with a real pid race; it was argued from the documented API, not raced.
    - OpenSSH's `safe_path` source, whose page was truncated, so the ancestor walk rests on the rename argument of section 7.
    - Whether a service running as a virtual account can set the pipe owner to its per-service SID, and whether the pipe file system keeps the owner per pipe or per instance. #684's runner case settles both.
    - The Linux `fdinfo` pid across pid namespaces. #375's case runs the reader inside a child pid namespace.
+   - A full re-run of the external compile-sketch harness (`#1757` comments `7056002171`, `7056002529`, `7056002830`) after revision 4's `m1` to `m4` and RFC 0007 to 0009 updates.
 
    The round 1 evaluator confirmed the unix(7) and socket(7) facts and the effective-uid fact.
 
@@ -793,7 +804,11 @@ Round 2, on `f032257`:
 - Seat 3, none blocking. https://github.com/416rehman/Guardrails/issues/1757#issuecomment-7055783126
 - Seat 7, none blocking. https://github.com/416rehman/Guardrails/issues/1757#issuecomment-7055796120
 
-Round 3: pending, on this revision, and the last round. The dispositions are on #1757.
+Round 3, on `533c30d` (revision 3):
+- `eval-architecture`: pass, seven minors (`m1` to `m7`). https://github.com/416rehman/Guardrails/issues/1757#issuecomment-7056170331
+- Seat 2 (IT admin): none blocking (asks to confirm uninstall ownership). https://github.com/416rehman/Guardrails/issues/1757#issuecomment-7056179378
+
+Round 4: pending, on this revision (revision 4), under ADR-0043 (`eval-review` and `eval-security`), answering `m1` to `m7`, seat 2's uninstall note, ADR-0045 and RFC 0007 to 0010.
 
 ## Decision
 Pending.
