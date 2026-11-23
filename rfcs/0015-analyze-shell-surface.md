@@ -11,7 +11,7 @@ Decision record: none yet
 
 To comment, write on issue #413 of this repository; you need no account on any service other than the code host. A security fix under embargo (D-62) may change a public surface without an RFC; open a retroactive RFC when the fix is disclosed.
 
-The text below is normative on its own. Where it differs from the items it covers (#22, #415, #422 to #426), this RFC wins, and section 10 tells each lead what to write back.
+This is revision 2. It answers the round 1 `eval-security` findings on #413 (PR #2039, commit `ca684fd`): state-mutating and POSIX special built-ins plus `command`/`builtin` wrappers, Billion-Laughs / `ShellInput.env` byte bounds (`EnvBytes`, `ExpandedBytes`), subshell redirects on `Command::Subshell`, and unquoted globs in `argv[0]` and `Redirect.target`. The text below is normative on its own. Where it differs from the items it covers (#22, #415, #422 to #426), this RFC wins, and section 10 tells each lead what to write back.
 
 ## Summary
 WI-0019 (#22) adds the first normaliser in `grdr-core`, the POSIX shell canonicaliser of [docs/design/13](../docs/design/13-detection-engine-and-content.md) section 8, together with integration tests and the differential fuzz target required by D-10 and [ADR-0009](../docs/decisions/ADR-0009-normalisers-are-tri-state-with-differential-targets.md). Because `grdr-core` is a layer 1 public crate, its public API changes only by RFC (D-61). This RFC states the `grdr_core::analyze` and `grdr_core::analyze::shell` surface (R1 to R4 of #413) and settles the escalation `#22-E1`:
@@ -65,6 +65,8 @@ impl Span {
 wire_enum! {
     pub enum LimitKind {
         InputBytes => "input_bytes",
+        EnvBytes => "env_bytes",
+        ExpandedBytes => "expanded_bytes",
         NestingDepth => "nesting_depth",
         Words => "words",
     }
@@ -171,17 +173,22 @@ pub struct ShellInput {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct ShellLimits {
-    /* private: max_input_bytes: Bytes, max_nesting_depth: Count, max_words: Count */
+    /* private: max_input_bytes: Bytes, max_env_bytes: Bytes, max_expanded_bytes: Bytes,
+       max_nesting_depth: Count, max_words: Count */
 }
 
 impl ShellLimits {
     pub const fn from_schema() -> ShellLimits;
     pub fn new(
         max_input_bytes: Bytes,
+        max_env_bytes: Bytes,
+        max_expanded_bytes: Bytes,
         max_nesting_depth: Count,
         max_words: Count,
     ) -> Result<ShellLimits, ShellLimitsError>;
     pub const fn max_input_bytes(self) -> Bytes;
+    pub const fn max_env_bytes(self) -> Bytes;
+    pub const fn max_expanded_bytes(self) -> Bytes;
     pub const fn max_nesting_depth(self) -> Count;
     pub const fn max_words(self) -> Count;
 }
@@ -229,7 +236,10 @@ impl Pipeline {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Command {
     Simple(SimpleCommand),
-    Subshell(CommandTree),
+    Subshell {
+        tree: CommandTree,
+        redirects: Vec<Redirect>,
+    },
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -273,31 +283,45 @@ pub fn canonicalise(input: &ShellInput, limits: &ShellLimits) -> Resolution<Comm
 Notes on these types:
 - **`ShellDialect` includes `PowerShell` and `Cmd` from slice 0.** Following the Windows spike (`#1705`) comments on `#22`, `grdr-agents` (`#376` R10) passes Claude Code `PowerShell` tool calls with `ShellDialect::PowerShell`. Including all three variants now lets `canonicalise` reject `PowerShell` and `Cmd` deterministically with `Resolution::Unresolved(vec![UnresolvedReason::UnsupportedDialect { dialect, span }])` before `#894` (E2.2) implements them, preventing any fail-open routing through the POSIX parser.
 - **`Pipeline` non-emptiness by construction.** `Pipeline` holds its `Vec<Command>` privately and exposes `new`, `single`, `commands` and `into_commands`, making an empty pipeline unrepresentable (structure rule S4) without panicking indexing (`indexing_slicing = "deny"`).
-- **`ShellLimits` and `limits.toml` under RFC 0007 (ADR-0038).** `limits.toml` was not yet created when `#416` and `#422` were drafted, and accepted RFC 0007 (`ADR-0038`) standardises `limits.toml` on `[bound.<name>]` rows read solely by `grdr_schema::limits` (P17, `ARCH-004`, `ARCH-019`). The three bounds enter `limits.toml` as:
+- **`ShellLimits` and `limits.toml` under RFC 0007 (ADR-0038).** `limits.toml` was not yet created when `#416` and `#422` were drafted, and accepted RFC 0007 (`ADR-0038`) standardises `limits.toml` on `[bound.<name>]` rows read solely by `grdr_schema::limits` (P17, `ARCH-004`, `ARCH-019`). The five bounds enter `limits.toml` as:
   - `[bound.analyze.shell.input-max]` (`bytes = 1048576`, `min = 1`, `max = 1048576`, `scope = "fixed"`, `effect = "none"`, `owner = "design/13"`) -> `grdr_schema::limits::ANALYZE_SHELL_INPUT_MAX`;
+  - `[bound.analyze.shell.env-max]` (`bytes = 1048576`, `min = 1`, `max = 1048576`, `scope = "fixed"`, `effect = "none"`, `owner = "design/13"`) -> `grdr_schema::limits::ANALYZE_SHELL_ENV_MAX`;
+  - `[bound.analyze.shell.expanded-max]` (`bytes = 1048576`, `min = 1`, `max = 1048576`, `scope = "fixed"`, `effect = "none"`, `owner = "design/13"`) -> `grdr_schema::limits::ANALYZE_SHELL_EXPANDED_MAX`;
   - `[bound.analyze.shell.nesting-depth-max]` (`count = 8`, `min = 1`, `max = 8`, `scope = "fixed"`, `effect = "none"`, `owner = "design/13"`) -> `grdr_schema::limits::ANALYZE_SHELL_NESTING_DEPTH_MAX`;
   - `[bound.analyze.shell.words-max]` (`count = 65536`, `min = 1`, `max = 65536`, `scope = "fixed"`, `effect = "none"`, `owner = "design/13"`) -> `grdr_schema::limits::ANALYZE_SHELL_WORDS_MAX`.
-  `ShellLimits::from_schema()` reads those three generated constants directly (with compile-time `const` assertions checking `>= 1` and `<= u32::MAX as u64`). `ShellLimits::new` validates non-zero and `u32`-representable bounds so test code can construct smaller limits while `ARCH-019` blocks literal `Bytes::new(...)` / `Count::new(...)` in product code.
+  `ShellLimits::from_schema()` reads those five generated constants directly (with compile-time `const` assertions checking `>= 1` and `<= u32::MAX as u64`). `ShellLimits::new` validates non-zero and `u32`-representable bounds so test code can construct smaller limits while `ARCH-019` blocks literal `Bytes::new(...)` / `Count::new(...)` in product code.
 
 ### 4. Canonicalisation contract for `canonicalise`
 To keep `#423` (canonicaliser), `#424` (reference model), `#425` (bash exec-tracing oracle) and `#426` (fuzz target) aligned:
 1. **Dialect check first.** Any dialect other than `ShellDialect::Posix` immediately returns `Resolution::Unresolved(vec![UnresolvedReason::UnsupportedDialect { dialect: input.dialect, span: Span::point(0) }])` without running the parser.
-2. **Input-size bound before parsing.** If `u64::try_from(input.command.len())` overflows or exceeds `limits.max_input_bytes().get()`, return `Resolution::Unresolved(vec![UnresolvedReason::LimitExceeded { kind: LimitKind::InputBytes, span }])` covering `0` to `min(input.command.len(), u32::MAX)` (computed without `unwrap` or `panic`) before calling `brush-parser`.
+2. **Input-size and environment-size bounds before parsing.**
+   - If `u64::try_from(input.command.len())` overflows or exceeds `limits.max_input_bytes().get()`, return `Resolution::Unresolved(vec![UnresolvedReason::LimitExceeded { kind: LimitKind::InputBytes, span }])` covering `0` to `min(input.command.len(), u32::MAX)` (computed without `unwrap` or `panic`) before calling `brush-parser`.
+   - Sum `k.len() + v.len()` across `input.env` using `checked_add`; if addition overflows `u64` or exceeds `limits.max_env_bytes().get()`, immediately return `Resolution::Unresolved(vec![UnresolvedReason::LimitExceeded { kind: LimitKind::EnvBytes, span: Span::point(0) }])` before copying or lowering any environment entries.
 3. **Nesting-depth safety.** Both AST lowering and the parser input path enforce `limits.max_nesting_depth()` so adversarial inputs (such as deeply nested `((((...` within 1 MiB) return `Resolution::Unresolved(vec![UnresolvedReason::LimitExceeded { kind: LimitKind::NestingDepth, span }])` before unbounded stack recursion can occur. Top-level commands sit at depth 0; each subshell or compound nesting increments depth; depth strictly above `max_nesting_depth` fails to `LimitExceeded`.
-4. **Word count bound.** Raw words parsed and lowered words emitted (summed across `argv`, `assignments` and `redirects`, including nested subshells) must each stay at or below `limits.max_words()`. Exceeding `max_words` returns `Resolution::Unresolved(vec![UnresolvedReason::LimitExceeded { kind: LimitKind::Words, span }])`, never a truncated `CommandTree` (`#423` R2).
+4. **Word count and incremental expanded-bytes bounds.**
+   - Raw words parsed and lowered words emitted (summed across `argv`, `assignments` and `redirects`, including nested subshells) must each stay at or below `limits.max_words()`. Exceeding `max_words` returns `Resolution::Unresolved(vec![UnresolvedReason::LimitExceeded { kind: LimitKind::Words, span }])`, never a truncated `CommandTree` (`#423` R2).
+   - Lowering maintains a running `expanded_bytes` counter across all lowered `Assignment` names and values (including straight-line environment updates), `SimpleCommand.argv` words, and `Redirect.target` bytes (both simple commands and subshells). Before appending any literal slice or parameter expansion slice into a buffer or straight-line map, lowering computes `expanded_bytes.checked_add(chunk.len())` against `limits.max_expanded_bytes().get()`. If addition overflows or exceeds `max_expanded_bytes`, lowering halts immediately without allocating the expanded payload and returns `Resolution::Unresolved(vec![UnresolvedReason::LimitExceeded { kind: LimitKind::ExpandedBytes, span }])`, preventing Billion-Laughs exponential parameter expansion (`a=...; b=$a$a...; ...`) and large-`env` expansion OOM.
 5. **UTF-8 and NUL bytes.** If `input.command` contains invalid UTF-8 or a `0x00` NUL byte, `canonicalise` returns `Resolution::Unresolved` (`UnsupportedConstruct`), never `Resolved` and never `Malformed` where `bash -n` accepts raw bytes (`#425` R4).
 6. **Syntax errors.** Input rejected by POSIX.1-2024 XCU section 2 / `brush-parser` returns `Resolution::Malformed(MalformedReason)` with the matching `GRDR-ANALYZE-*` code and saturating `u32` byte offset (`UnterminatedQuote`, `UnmatchedDelimiter`, `UnexpectedEof`, `SyntaxError`).
 7. **Canonical tree shape.**
    - Empty, whitespace-only or comment-only input returns `Resolved(CommandTree { items: Vec::new() })`.
    - The final `ListItem` in a sequential list (or a list terminated by `;` or newline) carries `ListConnector::Sequence`; `&&`, `||` and `&` set `And`, `Or` and `Background` on their preceding `ListItem`.
+   - `Command::Subshell { tree, redirects }` lowers the `( ... )` body at `depth + 1` in a child variable scope (never leaking assignments outward) and lowers any trailing subshell redirects (for example `(echo ... ) > /etc/cron.d/pwn`) in the enclosing scope into `redirects`, enforcing the same word, expanded-bytes and redirect-target glob rules so subshell redirects are never dropped.
    - `Redirect.fd` stores the explicit fd if specified (fitting `u32`, else `Malformed`/`UnsupportedConstruct`), or the POSIX.1-2024 §2.7 default (`0` for `Input`, `ReadWrite`, `DupInput`, `HereDoc`; `1` for `Output`, `Append`, `Clobber`, `DupOutput`).
-8. **Lowering and unresolved triggers (`#423` R4, R5).**
+8. **Lowering, state-mutating built-ins, globs and unresolved triggers (`#423` R4, R5).**
    - Words expand single quotes, double quotes, ANSI-C `$'...'`, backslash escapes, and simple `$NAME` / `${NAME}` parameter expansions present in `input.env` or assigned earlier on the same straight-line `Sequence` path.
+   - Dynamic shell variables (`RANDOM`, `SRANDOM`, `SECONDS`, `LINENO`, `EPOCHSECONDS`, `EPOCHREALTIME`, `BASHPID`, `PPID`, `PWD`, `OLDPWD`) return `UnknownVariable` unless deterministically fixed in the active environment; `cd`, `pushd` and `popd` clear `PWD` and `OLDPWD` from the active straight-line environment so subsequent `$PWD` / `$OLDPWD` expansions return `UnknownVariable`.
    - Prefix assignments (`FOO=bar cmd $FOO`) expand `cmd` arguments and redirects against the environment prior to `FOO=bar` and do not leak `FOO` to later commands; bare assignments (`FOO=bar` with empty `argv`) update the straight-line environment for subsequent `Sequence` items; subshells `( ... )`, multi-stage pipelines `|`, background `&`, and conditional `&&` / `||` branches never leak assignments outward (variables modified inside conditional branches become unknown afterward).
-   - Default `IFS` (ASCII space, tab, newline) splitting applies only to unquoted expanded parameter values; quoted expansions produce one word; no filename globbing is performed; `~` / `~/...` expands only when `HOME` is known in the active environment (`UnknownVariable` if absent, `UnsupportedConstruct` for `~user`).
-   - Any expansion of `IFS` or assignment to `IFS` returns `IfsExpansion`.
+   - Default `IFS` (ASCII space, tab, newline) splitting applies only to unquoted expanded parameter values; quoted expansions produce one word; `~` / `~/...` expands only when `HOME` is known in the active environment (`UnknownVariable` if absent, `UnsupportedConstruct` for `~user`).
+   - **Unquoted globs in command position or redirect targets.** Any unquoted and unescaped glob metacharacter (`*`, `?`, `[` or bash extglob `@(`, `!(`, `+(`, `*(`, `?(`), whether present literally or introduced by unquoted parameter or tilde expansion, in `argv[0]` (command position) or in `Redirect.target` returns `Resolution::Unresolved(vec![UnresolvedReason::UnsupportedConstruct { span }])`. Quoted glob characters (such as `"/bin/r[m]"`) remain literal. Non-command arguments `argv[1..]` keep literal `*`, `?`, `[` (no filesystem globbing in layer 1; extglob AST nodes anywhere return `UnsupportedConstruct`).
+   - **Built-in and dynamic execution matching on lowered `argv[0]`.** Matching runs on the final lowered `argv[0]` (after quote removal, escape processing, parameter expansion, default-`IFS` word splitting and empty-word elision), catching `\eval`, `'eval'`, `""eval`, `E=eval; $E ...` and `E="eval rm"; $E`:
+     - `eval` returns `DynamicEval`; `source` or `.` returns `DynamicSource`; `alias` returns `UndefinedAlias`.
+     - `command` and `builtin` return `Unresolved` (mapping wrapped `eval` to `DynamicEval`, `source`/`.` to `DynamicSource`, `alias` to `UndefinedAlias`, and any other `command` / `builtin` invocation to `UnsupportedConstruct`), preventing wrapper bypasses such as `command eval ...` or `builtin export ...`.
+     - State-mutating built-ins (`export`, `unset`, `readonly`, `declare`, `typeset`, `local`, `read`, `mapfile`, `readarray`, `getopts`, `set`, `shift`, `trap`, `unalias`, `shopt`, `enable`, `let`, `exec`, `times`, and `printf` whenever any argument before `--` starts with `-v`, covering both `-v name` and `-vname`, or conservatively if flag parsing is ambiguous) return `UnsupportedConstruct`, so straight-line variable state and `IFS` never go stale.
+     - Any POSIX.1-2024 XCU §2.14 special built-in (`:`, `.`, `break`, `continue`, `eval`, `exec`, `exit`, `export`, `readonly`, `return`, `set`, `shift`, `times`, `trap`, `unset`) invoked with non-empty prefix `assignments` (such as `CMD=rm :`) returns `Unresolved` (`DynamicEval` / `DynamicSource` / `UnsupportedConstruct`), because prefix assignments on POSIX special built-ins persist in the current shell.
+   - Any expansion of `IFS` or assignment to `IFS` (bare or prefix) returns `IfsExpansion`.
    - Unknown variables or special/positional parameters (`$1`, `$@`, `$*`, `$?`, `$$`, `$!`) return `UnknownVariable`.
-   - Command substitution (`$(...)`, `` `...` ``) and arithmetic expansion (`$((...))`) return `SubstitutionInCommandPosition` / `ArithmeticInCommandPosition` in command-word position and `SubstitutionInWord` / `ArithmeticInWord` elsewhere; `<(...)` / `>(...)` returns `ProcessSubstitution`; `eval` returns `DynamicEval`; `source` / `.` returns `DynamicSource`; `alias` returns `UndefinedAlias`; unlowered control flow, functions, complex `${...}` parameter modifiers, brace expansion, unquoted heredoc expansions, pipeline negation `!` and bash-only redirects (`<<<`, `&>`, `&>>`) return `UnsupportedConstruct`.
+   - Command substitution (`$(...)`, `` `...` ``) and arithmetic expansion (`$((...))`) return `SubstitutionInCommandPosition` / `ArithmeticInCommandPosition` in command-word position and `SubstitutionInWord` / `ArithmeticInWord` elsewhere; `<(...)` / `>(...)` returns `ProcessSubstitution`; unlowered control flow, functions, complex `${...}` parameter modifiers, brace expansion, unquoted heredoc expansions, pipeline negation `!` and bash-only redirects (`<<<`, `&>`, `&>>`) return `UnsupportedConstruct`.
 
 ### 5. Decision on `Resolution<T>` placement (R2)
 **Decision.** `Resolution<T>`, `UnresolvedReason` and `MalformedReason` stay in `grdr_core::analyze` for slice 0.
@@ -353,7 +377,7 @@ Rules:
 | `MalformedReason`, `ShellLimitsError` | `structural` | Standard `Debug` (variant, `offset`/`kind`) | `LogSafe` via `LogValue::Code(*self.code())` |
 
 - **Assurance effect (P1).** Defining this surface changes no assurance record by itself. Once policy wires `canonicalise` in `Engine::step`, `Malformed` denies at request level (`on_failure` closed for malformed input, D-10; design/12 section 4 row 1) and `Unresolved` emits `exec.opaque`, which steps up at request level in fail-closed classes and defers to OS control points where a boundary covers `exec`.
-- **Scale (P15).** Canonicalisation is pure, per-call CPU work bounded by `ANALYZE_SHELL_INPUT_MAX` (1 MiB), `ANALYZE_SHELL_NESTING_DEPTH_MAX` (8) and `ANALYZE_SHELL_WORDS_MAX` (65,536). It keeps no cross-call state, cache, queue or store call.
+- **Scale (P15).** Canonicalisation is pure, per-call CPU work bounded by `ANALYZE_SHELL_INPUT_MAX` (1 MiB), `ANALYZE_SHELL_ENV_MAX` (1 MiB), `ANALYZE_SHELL_EXPANDED_MAX` (1 MiB), `ANALYZE_SHELL_NESTING_DEPTH_MAX` (8) and `ANALYZE_SHELL_WORDS_MAX` (65,536). It keeps no cross-call state, cache, queue or store call, and bounds allocation against Billion-Laughs parameter expansion in `O(max_expanded_bytes)` time and memory.
 
 ### 9. Mechanisms
 | Decision | Mechanism | Built by |
@@ -362,23 +386,23 @@ Rules:
 | No `brush_parser` type on public surface (`ARCH-007`) | `cargo public-api -p grdr-core \| grep brush_parser` empty; private `lower`/`map_error` helpers; `ARCH-007` check | `#423`, `#1582` |
 | Layer 1 purity and determinism (`D-05`, `ARCH-003`) | `cargo build -p grdr-core --locked --target wasm32-unknown-unknown`; workspace lints (`unwrap_used`, `expect_used`, `panic`, `indexing_slicing`, `unsafe_code = "forbid"`, `arithmetic_side_effects = "deny"`); `ARCH-003` | `#415`, `#422`, `#423`, `#1582` |
 | Content-class `Debug` redaction and `LogSafe` boundary (`P8`) | Unit tests asserting `format!("{:?}", ...)` for `ShellInput`, `SimpleCommand`, `Assignment`, `Redirect` contains no raw payload bytes; compile-fail doctests rejecting `log_record!` on `ShellInput`/`CommandTree`/`SimpleCommand` | `#422`, `#284` |
-| Bounds sourced from `limits.toml` (`D-69`, `ARCH-019`) | `[bound.analyze.shell.*]` rows in `limits.toml`, `const` assertions in `ShellLimits::from_schema()`, `ARCH-019` refusing literal `Bytes::new`/`Count::new` in non-test code | `#279`, follow-up `limits.toml` item, `#422`, `#1582` |
+| Bounds sourced from `limits.toml` (`D-69`, `ARCH-019`) | Five `[bound.analyze.shell.*]` rows in `limits.toml`, `const` assertions in `ShellLimits::from_schema()`, `ARCH-019` refusing literal `Bytes::new`/`Count::new` in non-test code | `#279`, follow-up `limits.toml` item, `#422`, `#1582` |
 | Registered error codes (`ARCH-017`) | `schema/codes/analyze.toml`, `grdr_schema::codes` drift test, `Coded` exhaustive match, `ARCH-017` | `#278`, `#422`, `#1582` |
-| Non-empty `Unresolved`, limit compliance, wrong dialect | Property/unit tests (`shell_tree`, `shell_lower`), including `ShellDialect::PowerShell` returning `Unresolved` without lowering | `#422`, `#423` |
+| Non-empty `Unresolved`, limit compliance, wrong dialect, DoS and built-in evasion | Property/unit tests (`shell_tree`, `shell_lower`): `ShellDialect::PowerShell` returns `Unresolved`; Billion-Laughs exponential expansion and oversized `ShellInput.env` fail fast at `ExpandedBytes`/`EnvBytes`; state-mutating built-ins, prefixed special built-ins, `command`/`builtin` wrappers, subshell redirects and unquoted `argv[0]`/`Redirect.target` globs are tested | `#422`, `#423` |
 | Semantic parity and zero best guesses (`D-10`, `ADR-0009`) | Independent reference model (`#424`), real `bash` `strace -f -e trace=execve` oracle (`#425`), differential fuzz target `shell_canon` (`#426`) | `#424`, `#425`, `#426` |
 
 ### 10. What each item changes and prerequisites
 Because `crates/grdr-schema` (`#278`, `#279`), `crates/grdr-model` (`#284`) and `limits.toml` (`#279`, `#416` closed without merging) have not yet landed on `main`, this RFC records the exact prerequisites and updates:
 
-- **New protected-change item (to be filed on acceptance, `squad:core`, `trust-core`):** blocked by `#279`; adds `[bound.analyze.shell.input-max]`, `[bound.analyze.shell.nesting-depth-max]` and `[bound.analyze.shell.words-max]` to `limits.toml`, and adds `fuzz/Cargo.toml` and `fuzz/fuzz_targets/shell_*.rs` under `[squad.core]` in [`.claude/owners.toml`](../.claude/owners.toml) (replacing closed `#416`'s pre-ADR-0029 `.agents/owners.toml` reference).
+- **New protected-change item (to be filed on acceptance, `squad:core`, `trust-core`):** blocked by `#279`; adds `[bound.analyze.shell.input-max]`, `[bound.analyze.shell.env-max]`, `[bound.analyze.shell.expanded-max]`, `[bound.analyze.shell.nesting-depth-max]` and `[bound.analyze.shell.words-max]` to `limits.toml`, and adds `fuzz/Cargo.toml` and `fuzz/fuzz_targets/shell_*.rs` under `[squad.core]` in [`.claude/owners.toml`](../.claude/owners.toml) (replacing closed `#416`'s pre-ADR-0029 `.agents/owners.toml` reference).
 - **`#415` (`brush-parser` and `libfuzzer-sys`):** carries `#22-E1`'s Option A admission into `Cargo.lock` and `supply-chain/admissions.toml`, and adds `grdr-schema` and `grdr-model` (already permitted by `architecture.toml`) to `crates/grdr-core/Cargo.toml` if not added in `#422`'s dependency edge item. If `#415` AC-2 finds `brush-parser` fails `wasm32-unknown-unknown`, `grdr_core::analyze`'s public API stays unchanged (`ARCH-007`) and `#415` routes to the fallback pure-Rust parser.
 - **`#422` (WI-0019a):**
   - Blocked by `#278` (`grdr_schema::codes`), `#279` + the `[bound.analyze.shell.*]` `limits.toml` item (`grdr_schema::limits`), and `#284` (`grdr_model::LogSafe`, `wire_enum!`).
   - Write set gains [`crates/grdr-core/src/lib.rs`](../crates/grdr-core/src/lib.rs) (to change `mod analyze;` to `pub mod analyze;`), `crates/grdr-core/Cargo.toml`, `schema/codes/areas.toml`, `schema/codes/analyze.toml`, `crates/grdr-schema/src/codes/generated.rs`, and (if `#1853` R2 is on `main`) `interface/strings/src/code.mf2.toml` per RFC 0010.
-  - Updates R2 to include `SubstitutionInWord`, `ArithmeticInWord`, `ProcessSubstitution`, `UnsupportedConstruct`, `UnsupportedDialect`, `UnresolvedKind`, `Span` and `LimitKind`; updates R3 for `MalformedReason` variants (`GRDR-ANALYZE-0001`..`0004`); updates R4 for `Pipeline` private non-empty methods, `ListConnector` final-item rule and `RedirectOp`/`fd: u32`; updates R5 for `ShellDialect { Posix, PowerShell, Cmd }`, `ShellLimits::from_schema()`/`new`, `ShellLimitsError` (`GRDR-ANALYZE-0005`..`0006`), and reading `[bound.analyze.shell.*]` through `grdr_schema::limits` rather than raw `[analyze.shell]` TOML.
-- **`#423` (WI-0019b):** implements section 4's dialect dispatch (`PowerShell`/`Cmd` -> `UnsupportedDialect`), pre-parse input and depth bounds, NUL/non-UTF-8 -> `UnsupportedConstruct`, `brush-parser` lowering with private mappers (no `From<brush_parser::...>`), and adds a test proving `ShellDialect::PowerShell` returns `Unresolved` without lowering (`#22` Windows spike).
-- **`#424` (WI-0019c) and `#426` (WI-0019e):** read `ShellLimits::from_schema()` (from `limits.toml` via `grdr_schema::limits`) instead of parsing an `[analyze.shell]` TOML table directly; `#424` implements section 4's exact `CommandTree` representation rules.
-- **Design docs follow-up (filed on acceptance, `chief-architect`):** updates `docs/design/13` section 8 (`UnsupportedDialect`, `words-max` bound, `ShellLimits` via `grdr-schema`) and `docs/design/03` section 2 wording where needed once this RFC is accepted.
+  - Updates R2 to include `SubstitutionInWord`, `ArithmeticInWord`, `ProcessSubstitution`, `UnsupportedConstruct`, `UnsupportedDialect`, `UnresolvedKind`, `Span` and `LimitKind` (`InputBytes`, `EnvBytes`, `ExpandedBytes`, `NestingDepth`, `Words`); updates R3 for `MalformedReason` variants (`GRDR-ANALYZE-0001`..`0004`); updates R4 for `Pipeline` private non-empty methods, `ListConnector` final-item rule, `Command::Subshell { tree, redirects }` and `RedirectOp`/`fd: u32`; updates R5 for `ShellDialect { Posix, PowerShell, Cmd }`, `ShellLimits::from_schema()`/`new` (five bounds), `ShellLimitsError` (`GRDR-ANALYZE-0005`..`0006`), and reading `[bound.analyze.shell.*]` through `grdr_schema::limits` rather than raw `[analyze.shell]` TOML.
+- **`#423` (WI-0019b):** implements section 4's dialect dispatch (`PowerShell`/`Cmd` -> `UnsupportedDialect`), pre-parse input and env bounds (`InputBytes`, `EnvBytes`), incremental expanded-bytes bound (`ExpandedBytes`), depth and word bounds (`NestingDepth`, `Words`), NUL/non-UTF-8 -> `UnsupportedConstruct`, subshell redirects on `Command::Subshell`, lowered-`argv[0]` matching for state-mutating built-ins / prefixed POSIX special built-ins / `command` & `builtin` wrappers, unquoted glob checks on `argv[0]` and `Redirect.target`, `brush-parser` lowering with private mappers (no `From<brush_parser::...>`), and tests covering `ShellDialect::PowerShell`, Billion-Laughs expansion, prefixed special built-ins (`CMD=rm :`), wrapped `command eval`, redirected subshells and `argv[0]`/`Redirect.target` globs (`#22` Windows spike).
+- **`#424` (WI-0019c) and `#426` (WI-0019e):** read `ShellLimits::from_schema()` (from `limits.toml` via `grdr_schema::limits`) instead of parsing an `[analyze.shell]` TOML table directly; `#424` implements section 4's exact `CommandTree` representation (`Command::Subshell { tree, redirects }`), byte bounds and built-in/glob rules.
+- **Design docs follow-up (filed on acceptance, `chief-architect`):** updates `docs/design/13` section 8 (`UnsupportedDialect`, `env-max`, `expanded-max`, `words-max`, `ShellLimits` via `grdr-schema`, built-in and command/redirect glob rules) and `docs/design/03` section 2 wording where needed once this RFC is accepted.
 
 ## Surfaces changed
 - `grdr-core` (layer 1, public, stability `experimental` in [`surfaces.toml`](../surfaces.toml)): `pub mod analyze;` exposing `Resolution<T>`, `Span`, `LimitKind`, `UnresolvedKind`, `UnresolvedReason`, `MalformedReason`, and `pub mod shell` exposing `ShellDialect`, `ShellInput`, `ShellLimits`, `ShellLimitsError`, `CommandTree`, `ListItem`, `ListConnector`, `Pipeline`, `Command`, `SimpleCommand`, `Assignment`, `Redirect`, `RedirectOp`, `canonicalise`.
@@ -395,6 +419,7 @@ Because `crates/grdr-schema` (`#278`, `#279`), `crates/grdr-model` (`#284`) and 
 - **Parse `[analyze.shell]` directly from `limits.toml` inside `grdr-core` (pre-RFC-0007 `#416` / `#422`).** Duplicates TOML parsing outside `grdr-schema`, violates `ARCH-004` (`toml` is banned in normal runtime closures) and contradicts RFC 0007's `[bound.<name>]` schema (`ADR-0038`, P17). Rejected for `[bound.analyze.shell.*]` read through `grdr_schema::limits`.
 - **Write a bespoke POSIX parser instead of admitting `brush-parser` (Option C of `#22-E1`).** Costs extra parser implementation while `docs/design/13` section 8 already selects `brush-parser` (MIT). Rejected as primary plan; preserved as `#415`'s zero-API-change fallback if `wasm32` fails.
 - **Return `Malformed` on invalid UTF-8 or NUL bytes.** Causes mismatches against `bash -n` where `bash -n` accepts raw byte arguments (`#425` R4). Rejected in favour of `Unresolved(UnsupportedConstruct)`.
+- **Ignore state-mutating built-ins or reject all subshells with redirects as `UnsupportedConstruct`.** Ignoring `export`/`unset`/`read`/prefixed special built-ins leaves stale `$VAR` and `IFS` values; rejecting redirected subshells `(cmd) > path` makes benign subshell logging opaque instead of preserving `redirects` for policy. Carrying `redirects` on `Command::Subshell` and returning `Unresolved` on state-mutating built-ins, prefixed special built-ins, wrappers and command/redirect globs handles both cleanly.
 
 ## Drawbacks
 - `grdr-core` gains three dependencies (`grdr-schema`, `grdr-model`, `brush-parser`); if `#415` AC-2 reveals a `wasm32` blocker in `brush-parser`, `#415` must pivot to an internal POSIX parser without changing this RFC's public API.
