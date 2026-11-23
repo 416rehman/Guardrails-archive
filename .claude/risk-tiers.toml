@@ -1,6 +1,8 @@
 # Risk-based evaluator selection (ADR-0043). Higher matching tier wins; never lowered.
-# Goal: 0 evaluators for green docs/test-only PRs, 1 lean evaluator (eval-review) for normal
-# changes, and 2 distinct-model evaluators (eval-review + eval-security) for high/trust-core.
+# Three lanes:
+#   fast_track (0 evaluators) : green CI decides for dependency/tool pins, docs, tests, small fixes.
+#   medium     (1 evaluator)  : eval-review on standard tier for normal code/hooks/kits.
+#   high / trust_core (2)     : eval-review + eval-security on 2 distinct models/providers, max 2 rounds.
 
 [limits]
 max_rounds = 2
@@ -13,34 +15,46 @@ evaluators = ["eval-review", "eval-security"]
 [high]
 paths = [
   "proto/**", "schema/**", "spec/**", "crates/grdr-{proto,schema,model,ports,wire}/**",
-  "AGENTS.md", "**/AGENTS.md", "**/REVIEW.md", "CLAUDE.md", "GEMINI.md", "CODEX.md",
-  ".agents/**", ".claude/**", "specs/**", "Cargo.lock"
+  "specs/**"
 ]
 triggers = [
-  "new_dependency", "major_bump", "public_api_change", "wire_or_pack_format_change",
+  "public_api_change", "wire_or_pack_format_change",
   "unsafe_added", "fail_mode_change", "security_test_weakened",
-  "essentials_or_failsafe_change", "acceptance_changed_after_spec"
+  "new_unapproved_licence"
 ]
 distinct_models = 2
 evaluators = ["eval-review", "eval-security"]
 
 [medium]
-paths = ["crates/**", "programs/**", "platform/**", "web/**", "desktop/**", "deploy/**", "lab/**"]
+paths = [
+  "crates/**", "programs/**", "platform/**", "web/**", "desktop/**", "deploy/**", "lab/**",
+  ".claude/**", ".agents/**", ".github/actions/**", "AGENTS.md", "CLAUDE.md", "GEMINI.md", "CODEX.md"
+]
 triggers = []
 evaluators = ["eval-review"]
 model_tier = "standard"
 
-[low]
-paths = ["docs/**", "**/*.md"]
-triggers = ["tests_only_addition", "additive_behind_flag", "docs_or_config_only"]
-evaluators = ["eval-review"]
-model_tier = "fast"
-# When CI (docs-check, branch-check, security scans, tests) is already green on head and the
-# change is purely docs, ADRs, or additive tests, skip spawning LLM evaluators.
-skip_evaluators_when_ci_green_and_docs_or_tests_only = true
+[fast_track]
+# Routine changes verified by deterministic CI (cargo-deny, osv-scanner, Pin reader, tools,
+# fmt/clippy/tests, docs-check, branch-check, gitleaks, Semgrep, zizmor). Merge once green when
+# no trust-core or high path/trigger matches.
+paths = [
+  "docs/**", "**/*.md",
+  "Cargo.toml", "Cargo.lock", "rust-toolchain.toml",
+  "supply-chain/build-tools.toml", "supply-chain/fixtures/**",
+  "rustfmt.toml", "**/clippy.toml",
+  "release-please-config.json", ".release-please-manifest.json",
+  "package.json", "pnpm-lock.yaml"
+]
+triggers = [
+  "dependency_or_tool_pin", "docs_or_config_only",
+  "tests_only_addition", "small_bug_fix_under_50_lines"
+]
+evaluators = []
+skip_spec_writer = true
+direct_orchestrator_allowed = true
 
-# Pass these concise one-line checklist reminders inline to eval-review / eval-security instead of
-# spawning extra per-kind evaluator or persona-council agents.
+# Concise one-line reminders passed inline to eval-review / eval-security instead of extra agents.
 [checklist_addons]
 ui = "Check keyboard navigation, focus/contrast tokens, and responsive layout via UI specs (no hardcoded colours)."
 interface_paths = ["web/**", "site/**", "interface/**", "desktop/**", "programs/grdr/**", "programs/grdr-tray/**", "programs/grdr-approve/**", "platform/*/installer/**"]
