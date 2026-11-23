@@ -49,13 +49,13 @@ Each crate's `[package.metadata.grdr]` keys (`layer`, `privilege`, `surface`, `r
 
 | `limits.toml` bound key | Unit | Value | Range (`min..=max`) | Scope | Effect | Owner |
 |---|---|---|---|---|---|---|
-| `strings.template-bytes-max` | `bytes` | `16384` | `1024..=65536` | `fixed` | `none` | `design/34` |
+| `strings.template-max` | `bytes` | `16384` | `1024..=65536` | `fixed` | `none` | `design/34` |
 | `strings.ast-nodes-max` | `count` | `512` | `32..=4096` | `fixed` | `none` | `design/34` |
 | `strings.local-depth-max` | `count` | `8` | `1..=32` | `fixed` | `none` | `design/34` |
 | `strings.match-branches-max` | `count` | `64` | `8..=256` | `fixed` | `none` | `design/34` |
-| `strings.pack-blob-bytes-max` | `bytes` | `65536` | `1024..=262144` | `fixed` | `none` | `design/12` |
+| `strings.pack-blob-max` | `bytes` | `65536` | `1024..=262144` | `fixed` | `none` | `design/12` |
 | `strings.list-items-max` | `count` | `64` | `4..=256` | `fixed` | `none` | `design/34` |
-| `strings.pseudo-expansion-added-permille` | `permille` | `400` | `200..=1000` | `fixed` | `none` | `design/34` |
+| `strings.pseudo-expansion-added` | `permille` | `400` | `200..=1000` | `fixed` | `none` | `design/34` |
 | `strings.agent-block-chars-max` | `count` | `600` | `200..=1200` | `fixed` | `none` | `design/28` |
 
 ### 2. `grdr-strings` public Rust surface (R1)
@@ -275,7 +275,7 @@ impl CompiledPackMessage {
 }
 ```
 Supported Unicode MessageFormat 2 (LDML Part 9, CLDR 49) syntax, closed registry and validation rules:
-- **Syntax scope and DoS bounds:** Quoted and unquoted pattern text, placeholders `{...}`, `.input` and `.local` variable declarations (`name = expression`), `.match $sel1 [$sel2 ...]` selector statements with literal keys (`|...|` or bare name token), CLDR plural category keys (`zero`, `one`, `two`, `few`, `many`, `other`) and wildcard fallback `*`, variable attributes `grdr:class=<class>`, and standard MF2 escapes (`\\`, `\{`, `\}`, `\|`). Nested `.match` is rejected (`GRDR-STR-0001`). Exhaustiveness requires a `*` fallback branch on every `.match` (`GRDR-STR-0001`). Every parse and deserialisation rejects inputs exceeding `limits.toml` bounds (`strings.template-bytes-max`, `strings.ast-nodes-max`, `strings.local-depth-max`, `strings.match-branches-max`, `strings.pack-blob-bytes-max`, `strings.list-items-max`) with `StringError::ResourceBoundExceeded` (`GRDR-STR-0012`) or `PackBlobInvalid` (`GRDR-STR-0008`).
+- **Syntax scope and DoS bounds:** Quoted and unquoted pattern text, placeholders `{...}`, `.input` and `.local` variable declarations (`name = expression`), `.match $sel1 [$sel2 ...]` selector statements with literal keys (`|...|` or bare name token), CLDR plural category keys (`zero`, `one`, `two`, `few`, `many`, `other`) and wildcard fallback `*`, variable attributes `grdr:class=<class>`, and standard MF2 escapes (`\\`, `\{`, `\}`, `\|`). Nested `.match` is rejected (`GRDR-STR-0001`). Exhaustiveness requires a `*` fallback branch on every `.match` (`GRDR-STR-0001`). Every parse and deserialisation rejects inputs exceeding `limits.toml` bounds (`strings.template-max`, `strings.ast-nodes-max`, `strings.local-depth-max`, `strings.match-branches-max`, `strings.pack-blob-max`, `strings.list-items-max`) with `StringError::ResourceBoundExceeded` (`GRDR-STR-0012`) or `PackBlobInvalid` (`GRDR-STR-0008`).
 - **Unknown function rejection:** Any `:fn` name outside `Mf2Function::REGISTRY` plus bare variable / `:string` exact-match selector syntax fails `MessageTemplate::parse` and `CompiledPackMessage::from_compiled_bytes` with `StringError::UnknownFunction` (`GRDR-STR-0002`, `#1612` R2).
 - **`.local` taint propagation and `DataClass` enforcement (`P8`, `ADV-8`):**
   1. `MessageTemplate::parse` rejects any inline `grdr:class` annotation strictly lower than `declared` (`attr < decl.class`) with `DisallowedDataClass` (`GRDR-STR-0007`), preserving `max(attr, decl.class)`.
@@ -424,7 +424,7 @@ pub fn format_pseudo_template(
 ```
 Deterministic transform rules (`#1612` R3 & AC-2, [design/28](../docs/design/28-desktop-and-developer-experience.md) DX-16, [design/34](../docs/design/34-documentation-support-and-lifecycle.md) §15a):
 - Transforms run strictly on literal text segments of the AST **after** variable/function slot boundaries are identified (and skip any code spans `` `...` ``, `:grdr:brand`, `:grdr:term`, `Identifier` values, or tokens marked `translate = false` such as `agent.*`):
-  - **`en-XA` (accented expansion):** Replaces ASCII letters in translatable literal spans with deterministic accented Latin equivalents (preserving case), appends deterministic filler padding so transformed literal content expands by at least `strings.pseudo-expansion-added-permille` from `limits.toml` (`400` permille at seed: `graphemes(out_literal) * 1000 >= graphemes(src_literal) * (1000 + added_permille)`), and encloses the complete rendered message in `[` and `]` (for truncation detection).
+  - **`en-XA` (accented expansion):** Replaces ASCII letters in translatable literal spans with deterministic accented Latin equivalents (preserving case), appends deterministic filler padding so transformed literal content expands by at least `strings.pseudo-expansion-added` from `limits.toml` (`400` permille at seed: `graphemes(out_literal) * 1000 >= graphemes(src_literal) * (1000 + added)`), and encloses the complete rendered message in `[` and `]` (for truncation detection).
   - **`ar-XB` (RTL + placeholder isolation):** Marks direction as `Direction::Rtl`, wraps every non-identifier placeholder unconditionally in FSI (`\u{2068}`) .. PDI (`\u{2069}`) and every `Identifier` slot in LRI (`\u{2066}`) .. PDI (`\u{2069}`), prefixes RLM (`\u{200F}`) on RTL literal runs, and applies deterministic Arabic-script / bidi-reordering stress framing without mutating placeholders or code identifiers. Under `BidiIsolation::Strip`, `ar-XB` falls back to `"en"` like any RTL locale.
   - **`ja-XC` (CJK width/script substitution):** Maps every ASCII letter (`A-Z`, `a-z`) inside translatable literal spans to deterministic Japanese Katakana/Kanji substitution characters so **zero ASCII `[A-Za-z]` letters remain** outside placeholders, code spans, `:grdr:brand` and `:grdr:term` spans (`#1612` AC-2).
 - `format_template` automatically dispatches to `format_pseudo_template` when `PseudoLocale::from_locale(locale)` is `Some(pseudo)` unless the message is marked non-translatable (`translate = false`), in which case the unmodified English template formats directly (`#1615` AC-3).
