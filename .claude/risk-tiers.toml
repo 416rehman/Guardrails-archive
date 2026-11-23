@@ -3,13 +3,15 @@
 # highest matching tier wins. A tier may be raised, never lowered.
 [trust_core]
 paths_file = "security/trust-core.paths"     # design/02 owns the list
-# Owner instruction 7: a trust-core change lands only after passing evaluators on two models.
+# Owner instruction 7: a trust-core change lands only after passing evaluators on two models
+# (satisfied across providers or distinct model tiers in .agents/models.toml).
 distinct_models = 2
 evaluators = ["eval-security", "eval-adversarial"]
 
 [high]
 paths = ["proto/**", "schema/**", "spec/**", "crates/grdr-{proto,schema,model,ports,wire}/**",
-         "AGENTS.md", "**/AGENTS.md", "**/REVIEW.md", "CLAUDE.md", ".claude/**", "specs/**", "Cargo.lock"]
+         "AGENTS.md", "**/AGENTS.md", "**/REVIEW.md", "CLAUDE.md", "GEMINI.md", "CODEX.md",
+         ".agents/**", ".claude/**", "specs/**", "Cargo.lock"]
 triggers = ["new_dependency", "major_bump", "public_api_change", "wire_or_pack_format_change",
             "unsafe_added", "fail_mode_change", "security_test_weakened", "essentials_or_failsafe_change",
             "acceptance_changed_after_spec"]

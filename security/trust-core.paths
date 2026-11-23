@@ -58,9 +58,12 @@ security/trust-core.paths
 security/breakers.toml
 security/scorecard.toml
 .github/**
+.agents/**
 .claude/**
 AGENTS.md
 CLAUDE.md
+GEMINI.md
+CODEX.md
 audits/**
 governance/**
 MAINTAINERS.md

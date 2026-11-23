@@ -1,0 +1,44 @@
+# Model routing for multi-provider agent sessions (P14, D-47, D-63, ADR-0042).
+# Sessions read this file instead of hard-coding one provider's model names.
+#
+# Tiers:
+#   architect - chief-architect (spine, RFCs, decision records, escalations)
+#   high      - tier:high or trust-core implementers and cross-model evaluators
+#   standard  - default implementers, leads, and evaluators
+#   fast      - trivial or read-only lookups
+
+[providers.anthropic]
+harness = "claude-code"
+architect = "claude-fable-5-2"
+high = "claude-opus-5-5"
+standard = "claude-sonnet-5-5"
+fast = "claude-sonnet-5-5"
+
+[providers.google]
+harness = "antigravity"
+architect = "Gemini 4 Neon"
+high = "Gemini 4 Neon"
+standard = "Gemini 4 Carbon"
+fast = "flash"
+
+[providers.google.subagent_tiers]
+architect = "pro"
+high = "pro"
+standard = "inherit"
+fast = "flash"
+
+[providers.openai]
+harness = "codex"
+architect = "gpt-5.4"
+high = "gpt-5.4"
+standard = "gpt-5.4-mini"
+fast = "gpt-5.4-mini"
+codex_cli = true
+
+[cross_model]
+# Trust-core and tier:high changes require at least two passing evaluators on distinct models
+# (D-63, owner instruction 7). Satisfied either by two different providers (for example Claude
+# and Gemini, Gemini and Codex/ChatGPT, or Claude and Codex/ChatGPT) or by two distinct model
+# tiers within one provider. Every evaluator verdict names both Provider and Model.
+distinct_models = 2
+require_distinct_from_implementer = true

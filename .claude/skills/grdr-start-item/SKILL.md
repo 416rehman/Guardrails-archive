@@ -15,7 +15,7 @@ The fifty-three reserved items carry their plan id in the title, `[WI-0002] ...`
 
 ## 1. Orient
 
-You run in your own worktree. Run `git status` and `git log --oneline -5`, then `git switch -c issue/<n>` (or `git switch issue/<n>` after `git fetch origin issue/<n>` when the branch exists from an earlier round). Never work on `main`.
+You run in your own worktree. Run `git status` and `git log --oneline -5`, then `git switch -c issue/<n>-<slug>` (or `git switch issue/<n>-<slug>` after `git fetch origin issue/<n>-<slug>` when the branch exists from an earlier round; `<slug>` is the 3-to-60-character lowercase ASCII kebab-case slug of the issue title). Never work on `main`.
 
 ## 2. Read, in this order, and only this
 
