@@ -6,7 +6,7 @@ Model: Gemini 4 Neon
 State: Review
 Design issue: #739
 Spine: D-05, D-07, D-08, D-09, D-10, D-11, D-13, D-15, D-16, D-25, D-31, D-44, D-53, D-60, D-61, D-63, D-69, P1, P2, P5, P7, P8, P9, P14, P17 (no spine text changes)
-Surfaces: public crate `grdr-model` (layer 1: `Mode`, `RuleClass`, `ApproverKind`, `OnLoss`, `RuleStatus`, `ApprovalRoute`, `Liftability`, `PolicyLayer`, `PackId`, `PackVersion`, `InertText`, `TokenKey`, `PolicyMessageRef`, `RuleMeta`, `RuleMetaLimits`, `RuleMetaLimitsError`, `RuleMetaError`, `RuleClassDefaults`, `RuleClassTable`, `RuleClassTableError`, `ModeRuleInput`, `ModeContext`, `CompiledSet`, `CompiledRuleMeta`, `ModeDiagnostic`, `ModeCompileError`, plus `Obligation::is_must` on RFC 0013's `Obligation`, amending RFC 0009); public crate `grdr-core` (layer 1, `experimental`: `analyze::{vocab, path_class, host_class, command_class}`, `policy::mode` exposing `cedar_policy::{Policy, PolicySet}` under `ARCH-007`, and `engine::{Input::ActionRequest, ActionRequest, ActionPayload, ExecActionRequest, EnvDeltaValue, TranslationOutcome, Decision, DeterminingRule, CacheScope, StepOutput.decision, LoadError::Policy}`, amending RFC 0013, RFC 0014 and RFC 0015); public crate `grdr-schema` (layer 0: `grdr_schema::cedar::EXEC_OPAQUE`, error code registrations in `POLICY`, `ANALYZE` and `CORE`, and `[bound.policy.*]` limits rows, amending RFC 0007 and RFC 0013); tool crate `grdr-policy-ref` (`layer = "tool"`, reference `mode` transform sharing `grdr-model` metadata types). As proposals: `limits.toml` (`#741`), `schema/codes/{policy,analyze,core}.toml` (`#278`, `#1853`), `architecture.toml` (`ARCH-007` `Policy`/`PolicySet` tracking), `security/trust-core.paths` (`#2075`, `PC-1`), `surfaces.toml`, `docs/design/{03,12,13,34}`, and issue write-backs on `#739`, `#212`, `#213`, `#217`, `#218`, `#221`, `#222`, `#223`, `#1861`, `#741`, `#435`, `#1600`, `#1900`, `#1885`, `#1537` and `#1582`
+Surfaces: public crate `grdr-model` (layer 1: `Mode`, `RuleClass`, `ApproverKind`, `OnLoss`, `RuleStatus`, `ApprovalRoute`, `Liftability`, `PolicyLayer`, `PackId`, `PackVersion`, `InertText`, `TokenKey`, `PolicyMessageRef`, `AnnotationParseError`, `RuleMeta`, `RuleMetaLimits`, `RuleMetaLimitsError`, `RuleMetaError`, `RuleClassDefaults`, `RuleClassTable`, `RuleClassTableError`, `ModeRuleInput`, `ModeContext`, `CompiledSet`, `CompiledRuleMeta`, `ModeDiagnostic`, `ModeCompileError`, plus `Obligation::is_must` on RFC 0013's `Obligation`, amending RFC 0009); public crate `grdr-core` (layer 1, `experimental`: `analyze::{vocab, path_class, host_class, command_class}`, `policy::mode` exposing `cedar_policy::{Policy, PolicySet}` under `ARCH-007`, and `engine::{Input::ActionRequest, ActionRequest, ActionControlContext, ActionPayload, ExecActionRequest, EnvDeltaValue, TranslationOutcome, Decision, DeterminingRule, CacheScope, StepOutput.decision, LoadError::Policy}`, amending RFC 0013, RFC 0014 and RFC 0015); public crate `grdr-schema` (layer 0: `grdr_schema::cedar::EXEC_OPAQUE`, error code registrations in `MODEL`, `POLICY`, `ANALYZE` and `CORE`, and `[bound.policy.*]` limits rows, amending RFC 0007 and RFC 0013); tool crate `grdr-policy-ref` (`layer = "tool"`, reference `mode` transform sharing `grdr-model` metadata types). As proposals: `limits.toml` (`#741`), `schema/codes/{model,policy,analyze,core}.toml` (`#278`, `#1853`), `architecture.toml` (`ARCH-007` `Policy`/`PolicySet` tracking), `security/trust-core.paths` (`#2075`, `PC-1`), `surfaces.toml`, `docs/design/{03,12,13,34}`, and issue write-backs on `#739`, `#212`, `#213`, `#217`, `#218`, `#221`, `#222`, `#223`, `#1861`, `#741`, `#435`, `#1600`, `#1900`, `#1885`, `#1537` and `#1582`
 Decision record: none yet
 
 To comment, write on issue #739 of this repository; you need no account on any service other than the code host. A security fix under embargo (D-62) may change a public surface without an RFC; open a retroactive RFC when the fix is disclosed.
@@ -34,12 +34,12 @@ Work item `RFC-1` (`#739`) moved from slice 1 to slice 0 to unblock the first ru
 
 | Component | In scope (RFC 0018, slice 0) | Out of scope (deferred to follow-up RFCs) |
 |---|---|---|
-| Rule metadata (`#212`) | `Mode`, `RuleClass`, `ApproverKind`, `OnLoss`, `RuleStatus`, `ApprovalRoute`, `Liftability`, `PolicyLayer`, `PackId`, `PackVersion`, `InertText`, `TokenKey`, `PolicyMessageRef`, `RuleMeta`, `RuleMetaLimits`, `RuleMetaError`, `RuleClassDefaults`, `RuleClassTable`, `Obligation::is_must` | Grants and retry types: `CanonicalAction`, `ActionDigest`, `EncodeError` (`#214`), `RetryBinding`, `PendingApproval`, `TokenCheck` (`#215`), `Grant`, grant index and matching (`#219`) |
+| Rule metadata (`#212`) | `Mode`, `RuleClass`, `ApproverKind`, `OnLoss`, `RuleStatus`, `ApprovalRoute`, `Liftability`, `PolicyLayer`, `PackId`, `PackVersion`, `InertText`, `TokenKey`, `PolicyMessageRef`, `AnnotationParseError`, `RuleMeta`, `RuleMetaLimits`, `RuleMetaError`, `RuleClassDefaults`, `RuleClassTable`, `Obligation::is_must` | Grants and retry types: `CanonicalAction`, `ActionDigest`, `EncodeError` (`#214`), `RetryBinding`, `PendingApproval`, `TokenCheck` (`#215`), `Grant`, grant index and matching (`#219`) |
 | Analyser vocabularies (`#213`) | `ListType`, `Polarity`, `ManagedBy`, `ClassName`, `VocabularyList`, `VocabularyLimits`, `VocabularyTable`, `VocabularyError` | Pack directory parsing (`#1885`, RFC 0019), layer list containment (`#71`), non-exec consumer list types (`env-protect`, `psl-suffix`, etc.) |
 | Analyser engines (`#221` to `#223`) | `PathTemplate`, `PathContext`, `CanonicalPath`, `WorkspaceMembership`, `PathClasses`, `PathClassifier`, `CanonicalHost`, `HostClasses`, `HostClassifier`, `CommandLeaf`, `CommandInput`, `flatten_tree`, `CommandClasses`, `UnresolvedCommandClasses`, `CommandOutcome`, `CommandClassifier`, `grdr_schema::cedar::EXEC_OPAQUE` | Shell canonicaliser internals (`#423`), URL parser and UTS 46 (`URL-1`), PowerShell and `cmd` canonicalisers (`#894`), `grdr-fastpath` compiler (`#414`), MCP and cloud analysers |
 | Mode transform (`#217`, `#218`) | `ModeRuleInput`, `ModeContext`, `CompiledSet`, `CompiledRuleMeta`, `ModeDiagnostic`, `ModeCompileError`, `ModeSourceRule`, `CompiledRule`, `CompiledSets`, `ModeError`, `compile_rule`, `compile_sets` | Rule read sets and floor eligibility (`#216`, `#71`), fail-safe tables (`#71`), `policy::decide` (`#1900`), `compile_down` native fragments |
-| Engine decide inputs/outputs (`#1861`) | `Input::ActionRequest(&ActionRequest)`, `ActionRequest`, `ActionPayload::Exec(ExecActionRequest)`, `EnvDeltaValue`, `TranslationOutcome`, `Decision`, `DeterminingRule`, `CacheScope`, `StepOutput.decision`, `LoadError::Policy(&'static Code)` | Other 14 action payloads (`#1602`), verdict caching (E1.5), `grdr.embed.v1alpha1` protobuf messages (`#381`), detection findings (`#171`) |
-| Schema, codes and limits (`#741`, `#278`) | Slice-0 `[bound.policy.*]` key names and bounds, `POLICY` / `ANALYZE` / `CORE` error reasons, `EXEC_OPAQUE` | Slice-1 `[bound.policy.*]` runtime activation (`retry-token-ttl`, `route-timer-default`, `approval-streak-max`, `grants-index-max`) if split in `#741` |
+| Engine decide inputs/outputs (`#1861`) | `Input::ActionRequest(&ActionRequest)`, `ActionRequest`, `ActionControlContext`, `ActionPayload::Exec(ExecActionRequest)`, `EnvDeltaValue`, `TranslationOutcome`, `Decision`, `DeterminingRule`, `CacheScope`, `StepOutput.decision`, `LoadError::Policy(&'static Code)` | Other 14 action payloads (`#1602`), verdict caching (E1.5), `grdr.embed.v1alpha1` protobuf messages (`#381`), detection findings (`#171`) |
+| Schema, codes and limits (`#741`, `#278`) | Slice-0 `[bound.policy.*]` key names and bounds, `MODEL` / `POLICY` / `ANALYZE` / `CORE` error reasons, `EXEC_OPAQUE` | Slice-1 `[bound.policy.*]` runtime activation (`retry-token-ttl`, `route-timer-default`, `approval-streak-max`, `grants-index-max`) if split in `#741` |
 
 #### 1.2 Alignment with [ADR-0053](../docs/decisions/ADR-0053-cedar-schema-grdr-policy-surface-adopted-by-rfc-0013.md) section 12.1
 
@@ -188,8 +188,12 @@ wire_enum! {
     }
 }
 
+#[non_exhaustive]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct AnnotationParseError;
+pub enum AnnotationParseError {
+    UnknownSpelling,
+}
+// Implements Coded (GRDR-MODEL-0013) and LogSafe (LogValue::Code); no Display or Error (RFC 0009 R6).
 ```
 
 Rules for section 2.1:
@@ -609,6 +613,7 @@ pub struct PathClassifyStats {
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct PathClassifier { /* private compiled patterns + optional workspace root */ }
+// Manual fmt::Debug: prints compiled class/pattern count and workspace-root presence only (`P8`).
 
 impl PathClassifier {
     pub fn build(table: &VocabularyTable, context: &PathContext) -> Result<Self, PathClassError>;
@@ -661,6 +666,7 @@ pub enum HostKind<'a> {
     Ipv4(core::net::Ipv4Addr),
     Ipv6(core::net::Ipv6Addr),
 }
+// Manual fmt::Debug: prints variant tag and `name_len` or IP family only (`P8`).
 
 impl CanonicalHost {
     pub fn parse(bytes: &[u8]) -> Result<Self, HostInputError>;
@@ -689,6 +695,7 @@ impl HostClassLimits {
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct HostClassifier { /* private canonical exact/wildcard/CIDR rules */ }
+// Manual fmt::Debug: prints compiled class/entry count only (`P8`).
 
 impl HostClassifier {
     pub fn build(table: &VocabularyTable) -> Result<Self, HostClassError>;
@@ -785,6 +792,7 @@ pub struct CommandClassifyStats {
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct CommandClassifier { /* private compiled command + argv-token entries */ }
+// Manual fmt::Debug: prints compiled command/fact entry counts only (`P8`).
 
 impl CommandClassifier {
     pub fn build(table: &VocabularyTable) -> Result<Self, CommandClassError>;
@@ -809,7 +817,7 @@ pub enum CommandClassError {
 // Implements Display, Error, Coded (1:1 to schema/codes/analyze.toml) and LogSafe (LogValue::Code).
 ```
 
-Rules for section 4.4: `flatten_tree` traverses `CommandTree` in left-to-right source order, emitting one `CommandLeaf` per `Command::Simple` with non-empty `argv` and recursing into `Command::Subshell`. Wrapper recursion (`sudo`, `env`, `bash -c`) runs upstream before constructing `CommandInput` (`#22` follow-up). Non-empty `CommandOutcome::Unresolved` always contains `ClassName::parse_schema(grdr_schema::cedar::EXEC_OPAQUE)` in `facts`.
+Rules for section 4.4: `flatten_tree` traverses `CommandTree` in left-to-right source order, emitting one `CommandLeaf` per `Command::Simple` with non-empty `argv` and recursing into `Command::Subshell`. Wrapper recursion (`sudo`, `env`, `bash -c`) runs upstream before constructing `CommandInput` (`#22` follow-up). `CommandOutcome::Unresolved` always includes `ClassName::parse_schema(grdr_schema::cedar::EXEC_OPAQUE)` in `facts` (alongside any literal-token facts from resolved leaves), even when both `leaves` and `reasons` are empty (for example non-POSIX shells or upstream `TranslationOutcome::Unresolved`).
 
 ---
 
@@ -827,13 +835,13 @@ pub struct ModeRuleInput {
     pub requested: Mode,
     pub pack_on_loss: OnLoss,
     pub effective_approver: ApproverKind,
-    pub user_local_time_lock: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ModeContext {
     pub class_table: RuleClassTable,
     pub offered_grades: BTreeSet<ApprovalGrade>,
+    pub install_profile: InstallProfile,
 }
 
 wire_enum! {
@@ -892,6 +900,20 @@ pub enum ModeCompileError {
         class_on_loss: OnLoss,
         rule_on_loss: OnLoss,
     },
+    ApproverBelowRule {
+        rule_id: PolicyRuleId,
+        rule_approver: ApproverKind,
+        effective_approver: ApproverKind,
+    },
+    InvalidSourceRuleId {
+        rule_id: PolicyRuleId,
+    },
+    InstanceIdOverLimit {
+        rule_id: PolicyRuleId,
+    },
+    MessageTokenKeyOverLimit {
+        rule_id: PolicyRuleId,
+    },
     Unspecified {
         rule_id: Option<PolicyRuleId>,
     },
@@ -901,6 +923,8 @@ pub enum ModeCompileError {
 
 Notes for section 5.1:
 - `grdr-policy-ref` (`#217`) links `grdr-model` and `std` only (`cargo tree -p grdr-policy-ref -e normal` contains neither `grdr-core` nor `cedar-policy`), type-aliasing or wrapping `ModeRuleInput` (`RefRule`) and `CompiledRuleMeta` (`RefCompiledRule`) and implementing `compile_rule` directly from R1 to R9 with zero shared code (`D-63`).
+- **No downgrade or time-lock spoofing by construction (`D-31`, `docs/design/18` section 4):** `ModeRuleInput` omits any raw `user_local_time_lock: bool` field; `compile_rule` computes `user_local_time_lock = (rule.layer == PolicyLayer::User && ctx.install_profile == InstallProfile::User && rule.effective_approver == ApproverKind::SelfApprover && set == CompiledSet::Enforced && effective_mode == Mode::Ask && min_grade == ApprovalGrade::G1)` directly (making cross-layer or protected-profile time-lock forging unrepresentable). Both `#217` and `#218` reject `rule.effective_approver < rule.meta.approver` with `ModeCompileError::ApproverBelowRule`.
+- **Source id grammar and `@message` token budget checks (`#217`, `#218`):** `compile_rule` validates `rule.meta.id` against the source rule-id grammar (`[a-z][a-z0-9.-]*`, zero `/`, zero `@`, zero `..`, no empty `.`-separated segment, rejecting non-conforming directly constructed `RuleMeta` values with `InvalidSourceRuleId`), validates the rendered `<layer>/<pack_id>@<pack_version>/<rule_id>` length (`<= POLICY_RULE_ID_MAX`, returning `InstanceIdOverLimit`), and whenever `rule.meta.message.is_some()` enforces checked length `5 + rule.pack_id.as_str().len() + 1 + rule.meta.id.as_str().len() + 8 <= POLICY_RULE_ID_MAX` (`MessageTokenKeyOverLimit`), guaranteeing `TokenKey::parse` for `pack.<pack_id>.<rule_id>.message` can never overflow in `Engine::step`.
 - `CompiledRuleMeta::liftability` is `Option<Liftability>` so `Shadow` and `Dropped` rules carry `None` rather than colliding with `Some(Liftability::None)` (final rule at `Block`, `#217` R8).
 
 #### 5.2 Cedar mode transform in `grdr_core::policy::mode` (`#218`)
@@ -949,8 +973,8 @@ pub enum ModeError {
     MetaCompile(ModeCompileError), // delegates Coded::code() verbatim
     NotForbid { rule_id: Option<PolicyRuleId> },
     ModeAnnotationInSource { rule_id: PolicyRuleId },
+    PolicyMetadataMismatch { rule_id: PolicyRuleId },
     DuplicateInstance { instance_id: PolicyRuleId },
-    InstanceIdOverLimit { rule_id: PolicyRuleId },
     BundlePoliciesOverLimit { limit: u64, actual: usize },
     TransformFailed { rule_id: PolicyRuleId },
     RuleMeta(RuleMetaError),       // delegates Coded::code() verbatim
@@ -976,7 +1000,7 @@ pub fn compile_sets_with_limits(
 ```
 
 Rules for section 5.2:
-1. **Instance id formatting:** Constructed as `<layer>/<pack_id>@<pack_version>/<rule_id>`, verified against `POLICY_RULE_ID_MAX` (`InstanceIdOverLimit`), and assigned as the Cedar `Policy` id (`PolicyId`) and `@id` annotation value. Because `PackId`, `PackVersion` and `RuleMeta.id` exclude `/`, `@` and `..`, instance ids are strictly injective.
+1. **Instance id formatting and source verification:** `compile_rule` enforces every `ModeCompileError` invariant of section 5.1 (`InvalidSourceRuleId`, `ApproverBelowRule`, `MinGradeBelowClass`, `OnLossBelowClass`, `InstanceIdOverLimit`, `MessageTokenKeyOverLimit`), verifies `rule.policy` is a Cedar `forbid` (`NotForbid`), rejects any `@mode` annotation in `rule.policy` (`ModeAnnotationInSource`), and verifies `rule.policy`'s parsed Cedar annotations match every field of `rule.input.meta` (`ModeError::RuleMeta` on invalid annotations, `ModeError::PolicyMetadataMismatch` if any field disagrees). Constructed instance ids follow `<layer>/<pack_id>@<pack_version>/<rule_id>`, assigned as both the Cedar `Policy` id (`PolicyId`) and `@id` annotation value. Because `PackId`, `PackVersion` and validated `rule.meta.id` exclude `/`, `@` and `..`, instance ids are strictly injective.
 2. **Deterministic compilation (`#218` R7, R8):** `compile_sets` sorts inputs by `instance_id` before inserting into `enforced` (`PolicySet`) and `shadow` (`PolicySet`), rejects duplicates with `ModeError::DuplicateInstance`, enforces `bundle_policies_max` (`5,000` from `limits.toml`, `docs/design/12` section 16), and validates `RuleMeta` and `ModeCompileError` before emitting policies.
 3. **Transform semantics (`#218` R2 to R6):** Rejects `permit` policies (`NotForbid`) and any source already carrying `@mode` (`ModeAnnotationInSource`). `Shadow` rewrites `@id` to `instance_id` only; `Enforced` adds `@mode("Ask")` or `@mode("Block")` (from `Mode::enforced().as_annotation()`), carries all remaining annotations verbatim, preserves every `when`/`unless` clause in order, and appends `unless { context.grants.contains("<rule_id>") }` whenever `meta.grant_clause` is true (`Ask`, or `Block` with `!is_final`).
 4. **Consumer alignment:** `policy::decide` (`#1900`) evaluates `CompiledSets::enforced` and `CompiledSets::shadow` directly and looks up satisfied or errored `PolicyRuleId`s inside `CompiledSets::rules` to populate `ForbidMatch`, `NotEvaluableRule` and `DeterminingRule`.
@@ -1015,12 +1039,44 @@ pub struct ExecActionRequest {
     pub executable: OpaqueId,
     pub executable_classes: Vec<ClassTag>,
 }
+
+impl ExecActionRequest {
+    pub fn new(
+        shell: ShellDialect,
+        translation: TranslationOutcome,
+        command: Vec<u8>,
+        env_delta: BTreeMap<Vec<u8>, EnvDeltaValue>,
+        executable: OpaqueId,
+        executable_classes: Vec<ClassTag>,
+    ) -> Self;
+}
 // Manual fmt::Debug: prints `shell`, `translation`, `command_len`, `env_delta_count` and redacted `executable` only.
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum ActionPayload {
     Exec(ExecActionRequest),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ActionControlContext {
+    pub control_coverage: ControlPointCoverage,
+    pub os_control_point_attached: bool,
+    pub caps: ControlPointCaps,
+    pub offered_grades: BTreeSet<ApprovalGrade>,
+    pub pending_window: PendingWindow,
+    pub modify_budget: ModifyBudget,
+}
+
+impl ActionControlContext {
+    pub fn new(
+        control_coverage: ControlPointCoverage,
+        os_control_point_attached: bool,
+        caps: ControlPointCaps,
+        offered_grades: BTreeSet<ApprovalGrade>,
+        pending_window: PendingWindow,
+        modify_budget: ModifyBudget,
+    ) -> Self;
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -1029,16 +1085,18 @@ pub struct ActionRequest {
     pub tool_use_id: OpaqueId,
     pub principal: PrincipalInput,
     pub common: CommonInput,
-    pub control_coverage: ControlPointCoverage,
-    pub os_control_point_attached: bool,
-    pub caps: ControlPointCaps,
-    pub offered_grades: BTreeSet<ApprovalGrade>,
-    pub pending_window: PendingWindow,
-    pub modify_budget: ModifyBudget,
+    pub control: ActionControlContext,
     pub payload: ActionPayload,
 }
 
 impl ActionRequest {
+    pub fn new(
+        tool_use_id: OpaqueId,
+        principal: PrincipalInput,
+        common: CommonInput,
+        control: ActionControlContext,
+        payload: ActionPayload,
+    ) -> Self;
     pub fn action_class(&self) -> ActionClass; // derived from payload; Exec(_) => ActionClass::Exec
 }
 // Manual fmt::Debug: prints `action_class`, `control_point`, `control_coverage`, `os_control_point_attached`
@@ -1078,7 +1136,7 @@ pub struct DeterminingRule {
 }
 // Manual fmt::Debug: structural metadata + redacted PolicyMessageRef summaries.
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Decision {
     pub action_class: ActionClass,
@@ -1126,15 +1184,16 @@ pub enum LoadError {
 Rules for section 6.1:
 1. **`Input::Event` and `Input::Tick` untouched:** Existing RFC 0014 paths emit `decision: None`, preserving `#384`, `#388` and `#19` binary parity vectors without modification. `grdr.embed.v1alpha1` (`Input` tags 3..5, `Output.decision` tag 6) stays reserved until a wire RFC unreserves it (`#1861` Non-goals).
 2. **`LoadError: Copy` preserved (`RFC 0014` section 3.2):** Adding `LoadError::Policy(&'static Code)` satisfies `#1861` R1 (`"LoadError::Policy with that error's code"`) and `Coded::code()` (`ARCH-017`) while preserving `Copy` across `grdr-ffi` and `grdr-wasm`.
-3. **Control effect computation on `Decision`:** `Decision.control` equals `ControlPointCoverage::None` when `executed_as == ExecutedVerb::ObserveOnly` (`coverage_gap == true`), otherwise the caller's `control_coverage`.
-4. **In-process pipeline (`#1861` R3 to R6):**
+3. **External construction and read-only outputs:** Callers in `grdr-engine` (`#1537`) and integration tests construct inputs via `ExecActionRequest::new`, `ActionControlContext::new` (or struct literal) and `ActionRequest::new`, avoiding E0639 on `#[non_exhaustive]` request structs while staying within Clippy's argument-count threshold. `Decision` and `DeterminingRule` are `#[non_exhaustive]` outputs constructed solely within `grdr-core`; `#[derive(Debug)]` on `Decision` is `P8`-clean because `DeterminingRule` redacts `PolicyMessageRef` and all other fields are `structural`.
+4. **Control effect computation on `Decision`:** `Decision.control` equals `ControlPointCoverage::None` when `executed_as == ExecutedVerb::ObserveOnly` (`coverage_gap == true`), otherwise `request.control.control_coverage`.
+5. **In-process pipeline (`#1861` R3 to R6):**
    - When `translation == TranslationOutcome::Malformed`, `Engine::step` skips `analyze::shell::canonicalise` and evaluates `NormaliserOutcome::Malformed` in `policy::decide` (row 1, `Verdict::Deny`).
    - When `translation == TranslationOutcome::Resolved` and `shell == ShellDialect::Posix`, `Engine::step` builds `ShellInput` from `command` and `EnvDeltaValue::Set` entries, calls `analyze::shell::canonicalise` under bundle `ShellLimits`, maps `Resolution<CommandTree>` to `CommandInput` (`From<Resolution<CommandTree>>`), classifies via `CommandClassifier` (`#223`), and builds `ExecInput` via `build_exec` (`#1600`, mapping `ClassName::as_str()` to `ClassTag` and `CommandOutcome::Unresolved` to neutral `[]` + `ContextField::CommandClasses` in `absent` + `exec.opaque` in `facts`).
    - Any non-POSIX `ShellDialect` or `translation == TranslationOutcome::Unresolved` enters `CommandClassifier` as `CommandInput::Unresolved { leaves: vec![], reasons: vec![] }` (`#1861` R3, `#223` R9: sets `exec.opaque`, marks `context.command.classes` absent).
    - If `build_exec` fails Cedar schema validation (`#1600` R4), `Engine::step` returns a `Decision` with `Verdict::Deny`, `DerivationRow::PolicyError`, `DecisionReason::PolicyError`, and emits the builder's `PolicyError` code in `StepOutput.diagnostics` (`#1861` R4).
    - `Output.diagnostics` sorts all `ShadowMatch`, `ShadowError`, `PolicyError` and coverage-gap `Diagnostic` entries deterministically by `(code.as_str(), rule_id)`.
-5. **`PolicyMessageRef` and Layer-4 rendering (`#1537`):** For a determining rule carrying `@message`, `token_id` is deterministically derived as `pack.<pack_id>.<rule_id>.message` (with `@message` in `source`), and for `@steer` as `agent.steer` (with `@steer` in `source`). Layer-4 `grdr-engine` (`#1537`) maps these Layer-1 structural values to `grdr_strings::MessageRef` (`#1384`, RFC 0017 `pack-text`), keeping Layer 1 free of `grdr-strings` (`ARCH-001`, `ARCH-024`).
-6. **`Engine::load` policy state and `LoadReport.not_evaluable` (`#1861` R1):** `Engine::load` keeps RFC 0014's exact signature (`(&VerifiedBundle, &HostProfile) -> Result<(Engine, LoadReport), LoadError>`), compiling bundle policy state during load, reporting unsupported-field rules in RFC 0014's `LoadReport.not_evaluable`, and surfacing any reader, layer-merge, compile or validation error as `LoadError::Policy(err.code())`.
+6. **`PolicyMessageRef` and Layer-4 rendering (`#1537`):** For a determining rule carrying `@message`, `token_id` is deterministically derived as `pack.<pack_id>.<rule_id>.message` (guaranteed `<= POLICY_RULE_ID_MAX` by section 5.1's `MessageTokenKeyOverLimit` check at compile time, with `@message` in `source`), and for `@steer` as `agent.steer` (with `@steer` in `source`). Layer-4 `grdr-engine` (`#1537`) maps these Layer-1 structural values to `grdr_strings::MessageRef` (`#1384`, RFC 0017 `pack-text`), keeping Layer 1 free of `grdr-strings` (`ARCH-001`, `ARCH-024`).
+7. **`Engine::load` policy state and `LoadReport.not_evaluable` (`#1861` R1):** `Engine::load` keeps RFC 0014's exact signature (`(&VerifiedBundle, &HostProfile) -> Result<(Engine, LoadReport), LoadError>`), compiling bundle policy state during load, reporting unsupported-field rules in RFC 0014's `LoadReport.not_evaluable`, and surfacing any reader, layer-merge, compile or validation error as `LoadError::Policy(err.code())`.
 
 ---
 
@@ -1142,10 +1201,11 @@ Rules for section 6.1:
 
 #### 7.1 `schema/codes/` entries under RFC 0007 and RFC 0010 (`ADR-0038`, `ADR-0044`)
 
-Under RFC 0007 section 4 ("Content, not surface"), each implementing item registers the error codes it constructs (`schema/codes/{policy,analyze,core}.toml` and `interface/strings/src/code.mf2.toml` under RFC 0010, with lowercase `code.<area>_<nnnn>.message` and `.fix` tokens). Because sibling items (`#435`, `#436`, `#1595`, `#1900`, `#384`) may allocate earlier numbers in parallel, exact numeric codes follow RFC 0007 section 4 ("one above the highest present in `schema/codes/<area>.toml`"), while this RFC freezes the canonical `Reason`, `ErrorClass`, `ConnectCode` and error-variant bindings below (showing first free slots after RFC 0013's `POLICY-0012`, RFC 0015's `ANALYZE-0006` and RFC 0014's `CORE-0009`):
+Under RFC 0007 section 4 ("Content, not surface"), each implementing item registers the error codes it constructs (`schema/codes/{model,policy,analyze,core}.toml` and `interface/strings/src/code.mf2.toml` under RFC 0010, with lowercase `code.<area>_<nnnn>.message` and `.fix` tokens). Because sibling items (`#435`, `#436`, `#1595`, `#1900`, `#384`) may allocate earlier numbers in parallel, exact numeric codes follow RFC 0007 section 4 ("one above the highest present in `schema/codes/<area>.toml`"), while this RFC freezes the canonical `Reason`, `ErrorClass`, `ConnectCode` and error-variant bindings below (showing first free slots after RFC 0013's `MODEL-0012` and `POLICY-0012`, RFC 0015's `ANALYZE-0006` and RFC 0014's `CORE-0009`):
 
 | Area & suggested slot | Reason (`UPPER_SNAKE`) | Class | Connect | Bound error variant(s) |
 |---|---|---|---|---|
+| `MODEL` `0013` | `ANNOTATION_SPELLING_INVALID` | `input` | `invalid_argument` | `AnnotationParseError::UnknownSpelling` |
 | `POLICY` `0013` | `LIMITS_ZERO_OR_OUT_OF_RANGE` | `input` | `invalid_argument` | `RuleMetaLimitsError::{ZeroLimit, ExceedsSchemaMax}`, `ModeError::ZeroLimit` |
 | `POLICY` `0014` | `ANNOTATION_MISSING_REQUIRED` | `input` | `invalid_argument` | `RuleMetaError::MissingRequired` |
 | `POLICY` `0015` | `ANNOTATION_UNKNOWN_KEY` | `input` | `invalid_argument` | `RuleMetaError::UnknownKey` |
@@ -1160,21 +1220,24 @@ Under RFC 0007 section 4 ("Content, not surface"), each implementing item regist
 | `POLICY` `0024` | `ANNOTATION_INVALID_OBLIGATION` | `input` | `invalid_argument` | `RuleMetaError::InvalidObligation` |
 | `POLICY` `0025` | `ANNOTATION_DUPLICATE_OBLIGATION` | `input` | `invalid_argument` | `RuleMetaError::DuplicateObligation` |
 | `POLICY` `0026` | `ANNOTATION_INVALID_STATUS` | `input` | `invalid_argument` | `RuleMetaError::InvalidStatus` |
-| `POLICY` `0027` | `RULE_ID_INVALID_SYNTAX` | `input` | `invalid_argument` | `RuleMetaError::RuleIdInvalid` |
+| `POLICY` `0027` | `RULE_ID_INVALID_SYNTAX` | `input` | `invalid_argument` | `RuleMetaError::RuleIdInvalid`, `ModeCompileError::InvalidSourceRuleId` |
 | `POLICY` `0028` | `RULE_ID_PREFIX_MISMATCH` | `input` | `invalid_argument` | `RuleMetaError::RuleIdPrefixMismatch` |
-| `POLICY` `0029` | `RULE_ID_OVER_LIMIT` | `input` | `invalid_argument` | `RuleMetaError::RuleIdOverLimit`, `ModeError::InstanceIdOverLimit` |
-| `POLICY` `0030` | `ANNOTATION_TEXT_OVER_LIMIT` | `input` | `invalid_argument` | `RuleMetaError::AnnotationOverLimit` |
-| `POLICY` `0031` | `ANNOTATION_TEXT_CONTROL_CHAR` | `input` | `invalid_argument` | `RuleMetaError::AnnotationControlChar` |
-| `POLICY` `0032` | `ANNOTATION_TEXT_URL_FORBIDDEN` | `input` | `invalid_argument` | `RuleMetaError::AnnotationDisallowedUrl` |
-| `POLICY` `0033` | `RULE_CLASS_TABLE_INVALID` | `input` | `invalid_argument` | `RuleClassTableError::{MissingClass, DuplicateClass}` |
-| `POLICY` `0034` | `MIN_GRADE_BELOW_CLASS` | `input` | `invalid_argument` | `ModeCompileError::MinGradeBelowClass` |
-| `POLICY` `0035` | `ON_LOSS_BELOW_CLASS` | `input` | `invalid_argument` | `ModeCompileError::OnLossBelowClass` |
-| `POLICY` `0036` | `MODE_COMPILE_UNSPECIFIED` | `internal` | `internal` | `ModeCompileError::Unspecified` |
-| `POLICY` `0037` | `SOURCE_RULE_NOT_FORBID` | `input` | `invalid_argument` | `ModeError::NotForbid` |
-| `POLICY` `0038` | `MODE_ANNOTATION_IN_SOURCE` | `input` | `invalid_argument` | `ModeError::ModeAnnotationInSource` |
-| `POLICY` `0039` | `DUPLICATE_RULE_INSTANCE` | `input` | `invalid_argument` | `ModeError::DuplicateInstance` |
-| `POLICY` `0040` | `BUNDLE_POLICIES_OVER_LIMIT` | `input` | `invalid_argument` | `ModeError::BundlePoliciesOverLimit` |
-| `POLICY` `0041` | `MODE_TRANSFORM_FAILED` | `internal` | `internal` | `ModeError::TransformFailed` |
+| `POLICY` `0029` | `RULE_ID_OVER_LIMIT` | `input` | `invalid_argument` | `RuleMetaError::RuleIdOverLimit`, `ModeCompileError::InstanceIdOverLimit` |
+| `POLICY` `0030` | `MESSAGE_TOKEN_KEY_OVER_LIMIT` | `input` | `invalid_argument` | `ModeCompileError::MessageTokenKeyOverLimit` |
+| `POLICY` `0031` | `ANNOTATION_TEXT_OVER_LIMIT` | `input` | `invalid_argument` | `RuleMetaError::AnnotationOverLimit` |
+| `POLICY` `0032` | `ANNOTATION_TEXT_CONTROL_CHAR` | `input` | `invalid_argument` | `RuleMetaError::AnnotationControlChar` |
+| `POLICY` `0033` | `ANNOTATION_TEXT_URL_FORBIDDEN` | `input` | `invalid_argument` | `RuleMetaError::AnnotationDisallowedUrl` |
+| `POLICY` `0034` | `RULE_CLASS_TABLE_INVALID` | `input` | `invalid_argument` | `RuleClassTableError::{MissingClass, DuplicateClass}` |
+| `POLICY` `0035` | `MIN_GRADE_BELOW_CLASS` | `input` | `invalid_argument` | `ModeCompileError::MinGradeBelowClass` |
+| `POLICY` `0036` | `ON_LOSS_BELOW_CLASS` | `input` | `invalid_argument` | `ModeCompileError::OnLossBelowClass` |
+| `POLICY` `0037` | `APPROVER_BELOW_RULE` | `input` | `invalid_argument` | `ModeCompileError::ApproverBelowRule` |
+| `POLICY` `0038` | `MODE_COMPILE_UNSPECIFIED` | `internal` | `internal` | `ModeCompileError::Unspecified` |
+| `POLICY` `0039` | `SOURCE_RULE_NOT_FORBID` | `input` | `invalid_argument` | `ModeError::NotForbid` |
+| `POLICY` `0040` | `MODE_ANNOTATION_IN_SOURCE` | `input` | `invalid_argument` | `ModeError::ModeAnnotationInSource` |
+| `POLICY` `0041` | `POLICY_METADATA_MISMATCH` | `input` | `invalid_argument` | `ModeError::PolicyMetadataMismatch` |
+| `POLICY` `0042` | `DUPLICATE_RULE_INSTANCE` | `input` | `invalid_argument` | `ModeError::DuplicateInstance` |
+| `POLICY` `0043` | `BUNDLE_POLICIES_OVER_LIMIT` | `input` | `invalid_argument` | `ModeError::BundlePoliciesOverLimit` |
+| `POLICY` `0044` | `MODE_TRANSFORM_FAILED` | `internal` | `internal` | `ModeError::TransformFailed` |
 | `ANALYZE` `0007` | `ANALYZE_LIMIT_ZERO` | `input` | `invalid_argument` | `ZeroLimit` across `VocabularyError`, `PathClassError`, `HostClassError`, `CommandClassError` |
 | `ANALYZE` `0008` | `VOCAB_CLASS_NAME_INVALID` | `input` | `invalid_argument` | `VocabularyError::InvalidClassName` |
 | `ANALYZE` `0009` | `VOCAB_CLASS_NAME_OVER_LIMIT` | `input` | `invalid_argument` | `VocabularyError::ClassNameOverLimit` |
@@ -1253,18 +1316,18 @@ All names below satisfy RFC 0007 section 6's strict naming rules (no hyphenated 
    - `#741` (`PC-2`, `limits.toml`): adopt section 7.2's RFC-0007-compliant `[bound.policy.*]` keys (unblocking `#212`, `#213`, `#218`, `#221`, `#222`, `#223`).
    - `#2075` / `#1582` (`architecture.toml` + `security/trust-core.paths`): extend RFC 0013's `ARCH-007` experimental Cedar exposure tracking to `cedar_policy::{Policy, PolicySet}` in `grdr_core::policy::mode`; confirm `ARCH-013` permits `analyze::command_class -> grdr_schema::cedar::EXEC_OPAQUE`; track `PC-1` (`crates/grdr-policy-ref/**`) in `security/trust-core.paths`.
    - `#435` / `#223`: export `pub const EXEC_OPAQUE: &str = "exec.opaque";` in `crates/grdr-schema/src/cedar.rs`.
-   - `#278` / `#1853`: register section 7.1 `POLICY`, `ANALYZE` and `CORE` codes and RFC 0010 tokens as each implementing item lands.
+   - `#278` / `#1853`: register section 7.1 `MODEL`, `POLICY`, `ANALYZE` and `CORE` codes and RFC 0010 tokens as each implementing item lands.
    - Design doc follow-up (`chief-architect`): sync `docs/design/12`, `13`, `03` and `34` with `EXEC_OPAQUE`, `CommandInput`/`flatten_tree`, `PolicyMessageRef` Layer-1/Layer-4 split, and slice-0 `limits.toml` keys.
 2. **Downstream issue write-backs:**
    - **`#739`:** record RFC 0018 acceptance (`ADR-0056` or next ADR), noting slice-1 grant/retry types (`#214`, `#215`, `#219`) remain deferred per `#739-E1`.
-   - **`#212`:** reuse RFC 0013's `ApprovalGrade`, `Obligation`, `Transform`, `EnforcedMode`, `PolicyRuleId` in `grdr-model` crate root; add `Obligation::is_must`, `as_annotation`/`from_annotation`, `ApproverKind::SelfApprover`, `RuleMeta.is_final`, `RuleMetaLimits`, `PackId`, `PackVersion`, `PolicyLayer`, `InertText`, `TokenKey`, `PolicyMessageRef`, `RuleClassTable::{new, try_from_entries}` and granular `RuleMetaError` codes.
+   - **`#212`:** reuse RFC 0013's `ApprovalGrade`, `Obligation`, `Transform`, `EnforcedMode`, `PolicyRuleId` in `grdr-model` crate root; add `Obligation::is_must`, `as_annotation`/`from_annotation`, `AnnotationParseError` (`GRDR-MODEL-0013`), `ApproverKind::SelfApprover`, `RuleMeta.is_final`, `RuleMetaLimits`, `PackId`, `PackVersion`, `PolicyLayer`, `InertText`, `TokenKey`, `PolicyMessageRef`, `RuleClassTable::{new, try_from_entries}` and granular `RuleMetaError` codes.
    - **`#213`:** type `VocabularyList.entries` as `Vec<Vec<u8>>` (with `from_strs` helper), adopt `VocabularyLimits` (`policy.class-name-max`, `policy.list-entries-max`, `policy.list-entry-max`, `policy.vocabulary-entries-max`), add `UnknownList` and `ClassNameOverLimit`, and note `POLICY_CLASS_NAME_MAX <= POLICY_CLASS_TAG_MAX`.
-   - **`#217`:** share `ModeRuleInput` (`RefRule`), `ModeContext`, `CompiledSet`, `CompiledRuleMeta` (`RefCompiledRule` with `liftability: Option<Liftability>`), `ModeDiagnostic` and `ModeCompileError` from `grdr-model` while keeping zero dependency on `grdr-core` or `cedar-policy`.
-   - **`#218`:** expose `CompiledRule`, `CompiledSets`, `ModeSourceRule`, `ModeCompileLimits`, `ModeError`, `compile_rule`, `compile_sets` in `grdr_core::policy::mode` (`ARCH-007` `Policy`/`PolicySet` tracked while `experimental`), bind `policy.bundle-policies-max`, and compare `CompiledRule.meta == RefCompiledRule` in `#218` AC-2.
+   - **`#217`:** share `ModeRuleInput` (`RefRule`), `ModeContext` (carrying `InstallProfile`, deriving `user_local_time_lock` cleanly without an unconstrained input boolean), `CompiledSet`, `CompiledRuleMeta` (`RefCompiledRule` with `liftability: Option<Liftability>`), `ModeDiagnostic` and `ModeCompileError` (`ApproverBelowRule`, `InvalidSourceRuleId`, `InstanceIdOverLimit`, `MessageTokenKeyOverLimit`) from `grdr-model` while keeping zero dependency on `grdr-core` or `cedar-policy`.
+   - **`#218`:** expose `CompiledRule`, `CompiledSets`, `ModeSourceRule`, `ModeCompileLimits`, `ModeError` (including `PolicyMetadataMismatch` verifying source `Policy` annotations against `ModeRuleInput.meta`), `compile_rule`, `compile_sets` in `grdr_core::policy::mode` (`ARCH-007` `Policy`/`PolicySet` tracked while `experimental`), bind `policy.bundle-policies-max`, and compare `CompiledRule.meta == RefCompiledRule` in `#218` AC-2.
    - **`#221`:** adopt `PathTemplate`, `PathContext` (`Option<CanonicalPath>`), `CanonicalPath` (root `/` permitted; manual redacting `Debug`), `WorkspaceMembership`, `PathClasses`, `PathClassLimits` (`policy.path-pattern-max`, `policy.path-max`), `build`/`build_with_limits` and `classify_with_stats`.
    - **`#222`:** adopt `CanonicalHost` (redacting `Debug`, bracket removal + IPv4-mapped/NAT64 IPv4 conversion at parse), `HostClassLimits` (`policy.host-entry-max`), `build`/`build_with_limits`, `HostInputError` and `HostClassError`.
    - **`#223`:** import `grdr_schema::cedar::EXEC_OPAQUE`, expose `CommandLeaf`, `CommandInput`, `flatten_tree`, `From<Resolution<CommandTree>>`, `CommandClasses`, `UnresolvedCommandClasses` (without `classes` field), `CommandOutcome`, `CommandClassLimits` (`policy.command-entry-tokens-max`) and `classify_with_stats`.
-   - **`#1861`:** adopt Layer-1 `TranslationOutcome`, `EnvDeltaValue`, `ExecActionRequest`, `ActionPayload`, `ActionRequest`, `DeterminingRule`, `PolicyMessageRef`, `CacheScope`, `Decision`, `StepOutput.decision` and `LoadError::Policy(&'static Code)`, with `#1537` translating `PolicyMessageRef` into `grdr_strings::MessageRef`.
+   - **`#1861`:** adopt Layer-1 `TranslationOutcome`, `EnvDeltaValue`, `ExecActionRequest::new`, `ActionPayload`, `ActionControlContext::new`, `ActionRequest::new`, `DeterminingRule`, `PolicyMessageRef`, `CacheScope`, `Decision`, `StepOutput.decision` and `LoadError::Policy(&'static Code)`, with `#1537` translating `PolicyMessageRef` into `grdr_strings::MessageRef`.
    - **`#1600`, `#1900`, `#1885`:** `#1600` consumes `ClassTag::parse(class_name.as_str())` and `CommandOutcome::Unresolved`; `#1900` consumes `CompiledSets::{enforced, shadow, rules}` (`CompiledRuleMeta`) and `ModeError`; `#1885` shares `RuleMeta`, `PolicyLayer`, `PackId`, `PackVersion` and `VocabularyList` without redefining them.
 
 ## Surfaces changed
@@ -1273,9 +1336,9 @@ This RFC authors specification only (`rfcs/0018-policy-engine-slice-0-public-typ
 
 | Surface | Change summary | Implementing item(s) |
 |---|---|---|
-| `grdr-model` (layer 1, amending RFC 0009) | Root-exported rule metadata types, `RuleClassTable`, `ModeRuleInput`, `CompiledRuleMeta`, `PolicyMessageRef`, `Obligation::is_must`, `ModeCompileError` | `#212`, `#217` |
-| `grdr-core` (layer 1, amending RFC 0013, RFC 0014, RFC 0015) | `analyze::{vocab, path_class, host_class, command_class}`, `policy::mode` (`cedar_policy::{Policy, PolicySet}` under `ARCH-007`), `engine::{Input::ActionRequest, ActionRequest, Decision, StepOutput.decision, LoadError::Policy}` | `#213`, `#221`, `#222`, `#223`, `#218`, `#1861` |
-| `grdr-schema` (layer 0, amending RFC 0007, RFC 0013) | `cedar::EXEC_OPAQUE`, `POLICY` / `ANALYZE` / `CORE` error codes, 10 slice-0 `[bound.policy.*]` limits rows (reusing `policy.rule-id-max`) | `#435`, `#278`, `#741` |
+| `grdr-model` (layer 1, amending RFC 0009) | Root-exported rule metadata types, `AnnotationParseError`, `RuleClassTable`, `ModeRuleInput`, `ModeContext`, `CompiledRuleMeta`, `PolicyMessageRef`, `Obligation::is_must`, `ModeCompileError` | `#212`, `#217` |
+| `grdr-core` (layer 1, amending RFC 0013, RFC 0014, RFC 0015) | `analyze::{vocab, path_class, host_class, command_class}`, `policy::mode` (`cedar_policy::{Policy, PolicySet}` under `ARCH-007`), `engine::{Input::ActionRequest, ActionRequest, ActionControlContext, ActionPayload, ExecActionRequest, Decision, StepOutput.decision, LoadError::Policy}` | `#213`, `#221`, `#222`, `#223`, `#218`, `#1861` |
+| `grdr-schema` (layer 0, amending RFC 0007, RFC 0013) | `cedar::EXEC_OPAQUE`, `MODEL` / `POLICY` / `ANALYZE` / `CORE` error codes, 10 slice-0 `[bound.policy.*]` limits rows (reusing `policy.rule-id-max`) | `#435`, `#278`, `#741` |
 | `grdr-policy-ref` (`tool`) | Pure `mode` reference evaluator over `grdr-model` (`PC-1` trust core) | `#217` |
 | Gate and design files | `limits.toml`, `architecture.toml`, `security/trust-core.paths`, `schema/codes/`, `docs/design/{03,12,13,34}` | `#741`, `#2075`, `#1582`, `#278`, `#1853`, design follow-up |
 
@@ -1308,9 +1371,11 @@ None for slice-0 scope. Three follow-up items remain for slice-1+ RFCs without b
 
 ## Review
 
+Revision 2 resolves Round 1 findings from `eval-review` and `eval-security` on PR `#2108` (`9b574ce16b6a0fda6748ae253e6cb0442b47e3ec`): adding `install_profile: InstallProfile` to `ModeContext`, removing unconstrained `user_local_time_lock` from `ModeRuleInput` and adding `ModeCompileError::ApproverBelowRule`, `InvalidSourceRuleId`, `InstanceIdOverLimit` and `MessageTokenKeyOverLimit`; adding `ExecActionRequest::new`, `ActionControlContext::new` and `ActionRequest::new` constructors; adding `Debug` across `Decision`, `ActionPayload`, `ActionControlContext`, `HostKind`, `PathClassifier`, `HostClassifier` and `CommandClassifier`; making `AnnotationParseError` a `#[non_exhaustive]` `Coded` + `LogSafe` enum (`GRDR-MODEL-0013`); verifying `ModeSourceRule.policy` annotations against `ModeRuleInput.meta` (`PolicyMetadataMismatch`); and clarifying unconditional `EXEC_OPAQUE` emission in `CommandOutcome::Unresolved`.
+
 Drafted in `State: Review` against spine pin [`docs/design/00-decisions.md`](../docs/design/00-decisions.md) blob `a80859235e7a2a4444648d6fa8d389d78dde6be9` (`sha256` `8f6ea876777c0121ecec068c0bc4cef45932be45c1c2aff4140712db1e06628d`). Per [`.claude/risk-tiers.toml`](../.claude/risk-tiers.toml) (`[checklist_addons].rfc` and [ADR-0043](../docs/decisions/ADR-0043-lean-token-optimised-agent-team.md)), review proceeds on `#739` with `eval-review` and `eval-security` across two distinct models or providers, naming the reviewed RFC blob, proposed text/base pin, provider and model:
-- `eval-review`: Pending on `#739`.
-- `eval-security`: Pending on `#739`.
+- `eval-review`: Pending Round 2 on `#739`.
+- `eval-security`: Pending Round 2 on `#739`.
 
 ## Decision
 
