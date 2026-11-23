@@ -18,7 +18,7 @@ This RFC decides the six open design items of `#431` for WI-0018 (`#21`) and its
 3. **R3 (Neutral values and `absent`/`pending`):** Keeps all Cedar context records and fields required with typed neutral values (`[]`, `false`, `0`, `""`, `{}`) when absent or pending, and keeps `absent` and `pending` as engine-side `BTreeSet<ContextField>` sets on `CedarRequest`. This validates all 22 worked rules strictly with zero rule edits and prevents policy rules from branching on `absent` or `pending` directly.
 4. **R4 (Rust surface of `grdr_core::policy` and `grdr-model` boundary):** Specifies `policy::{schema, request, derive, degrade}`, typed closed enums for inputs and outcomes, `PolicyRuleId` parsing and accessors, leak-free `PolicyError` (`LogSafe` via `Code`), and pure derivation and degradation data types hosted at `grdr-model`'s crate root (amending RFC 0009 and reusing `grdr_model::Tamper`) and re-exported into `grdr_core::policy` so `grdr-policy-ref` links only `grdr-model`. Keeps `surfaces.toml` at `(name, class, rfc)` with `grdr-core` `experimental` and tracks `cedar-policy` exposure under `ARCH-007`.
 5. **R5 (Dependencies):** Pins `cedar-policy = "=4.14.1"` with `default-features = false` as a normal dependency of `grdr-core` only (`ARCH-004`), and admits `proptest` (`MIT OR Apache-2.0`) as a dev-dependency of `grdr-core` and `grdr-policy-ref`.
-6. **R6 (`POLICY` error codes and limits):** Registers subsystem area `POLICY` (`GRDR-POLICY-0001` to `0012`) plus `GRDR-MODEL-0012` via `#278` and twelve `[bound.policy.*]` entries (including `policy.parser-bytes-max`, `policy.rule-id-max`, and `policy.class-tag-max`) in `limits.toml` via `#279` under RFC 0007 rules.
+6. **R6 (`POLICY` error codes and limits):** Registers subsystem area `POLICY` (`GRDR-POLICY-0001` to `0012`) plus `GRDR-MODEL-0012` via `#278` and twelve `[bound.policy.*]` entries (including `policy.parser-input-max`, `policy.rule-id-max`, and `policy.class-tag-max`) in `limits.toml` via `#279` under RFC 0007 rules.
 
 ## Motivation
 
@@ -646,12 +646,13 @@ pub enum PendingWindow {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum PolicyRuleIdError {
     Empty,
     TooLong,
     InvalidCharacter,
 }
-// Implements `Display`, `Error`, `Coded` (`GRDR-MODEL-0012`), and `LogSafe` (`LogValue::Code`).
+// Implements Coded (GRDR-MODEL-0012) and LogSafe (LogValue::Code); no Display or Error (RFC 0009 R4, R6).
 
 /// Validated non-empty identifier for a rule (`<rule-id>` or `<layer>/<pack>@<ver>/<rule-id>`).
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -897,7 +898,7 @@ To align directly with `#436` R1-R6 and `#1600` R1-R3 while preventing raw paths
    - `cedar-policy` and its internal crates (`cedar-policy-core`, `cedar-policy-formatter`) are `Apache-2.0`.
    - `proptest` is `MIT OR Apache-2.0`.
    - Every direct and transitive licence expected in both graphs (`Apache-2.0`, `MIT`, `BSD-2-Clause`, `BSD-3-Clause`, `ISC`, `Unicode-3.0`) falls within `[class] name = "permissive"` of [`supply-chain/licences.toml`](../supply-chain/licences.toml).
-   - `#432` runs `cargo deny check`, RustSec/OSV advisory checks, and `cargo vet` / `supply-chain/admissions.toml` verification against exact `Cargo.lock` checksums. The parser-input size cap mitigation for the 2026 Cedar parser memory advisory noted in `docs/design/03` section 13 (`policy.parser-bytes-max`) lands in `limits.toml` through `#279` (since `#432` modifies only `Cargo.toml`, `Cargo.lock`, `supply-chain/**`, and `crates/grdr-core/Cargo.toml`).
+   - `#432` runs `cargo deny check`, RustSec/OSV advisory checks, and `cargo vet` / `supply-chain/admissions.toml` verification against exact `Cargo.lock` checksums. The parser-input size cap mitigation for the 2026 Cedar parser memory advisory noted in `docs/design/03` section 13 (`policy.parser-input-max`) lands in `limits.toml` through `#279` (since `#432` modifies only `Cargo.toml`, `Cargo.lock`, `supply-chain/**`, and `crates/grdr-core/Cargo.toml`).
 
 ### 7. R6: `POLICY` error codes and `limits.toml` policy bounds
 
@@ -922,7 +923,7 @@ owner = "design/12"
 | `GRDR-POLICY-0009` | `REQUEST_SCHEMA_REJECTED` | `internal` | `internal` | `cedar_policy::Request::new` or `Entities::from_entities` rejected the built request |
 | `GRDR-POLICY-0010` | `POLICY_EVALUATION_FAILED` | `policy` | `permission_denied` | An enforced Cedar policy errored during evaluation |
 | `GRDR-POLICY-0011` | `OBLIGATION_UNMET` | `policy` | `failed_precondition` | Control point lacks a must-obligation such as `snapshot` |
-| `GRDR-POLICY-0012` | `PARSER_INPUT_OVER_LIMIT` | `input` | `invalid_argument` | Cedar schema or policy source bytes exceed `POLICY_PARSER_BYTES_MAX` |
+| `GRDR-POLICY-0012` | `PARSER_INPUT_OVER_LIMIT` | `input` | `invalid_argument` | Cedar schema or policy source bytes exceed `POLICY_PARSER_INPUT_MAX` |
 
 In addition, amending RFC 0009 registers `GRDR-MODEL-0012` (`RULE_ID_FORM`, `class = "input"`, `connect = "invalid_argument"`, bound by `PolicyRuleIdError`) in `schema/codes/model.toml` under area `MODEL`.
 
@@ -941,18 +942,18 @@ Each entry conforms to RFC 0007 section 4 (`status = "active"`, language tokens 
 | `policy.opaque-id-max` | `bytes = 256` | `16..=1024` | `fixed` / `none` | `design/04` | `POLICY_OPAQUE_ID_MAX` |
 | `policy.rule-id-max` | `bytes = 256` | `32..=512` | `fixed` / `none` | `design/12` | `POLICY_RULE_ID_MAX` |
 | `policy.class-tag-max` | `bytes = 128` | `32..=256` | `fixed` / `none` | `design/12` | `POLICY_CLASS_TAG_MAX` |
-| `policy.parser-bytes-max` | `bytes = 262144` | `4096..=1048576` | `fixed` / `none` | `design/03` | `POLICY_PARSER_BYTES_MAX` |
+| `policy.parser-input-max` | `bytes = 262144` | `4096..=1048576` | `fixed` / `none` | `design/03` | `POLICY_PARSER_INPUT_MAX` |
 | `policy.hold-deadline-share` | `permille = 800` | `1..=800` | `fixed` / `none` | `design/12` | `POLICY_HOLD_DEADLINE_SHARE` |
 | `policy.file-hold-cap` | `ms = 30000` | `1..=30000` | `fixed` / `none` | `design/12` | `POLICY_FILE_HOLD_CAP` |
 
-All names follow RFC 0007 section 6 naming rules (no segment equals a reserved key word such as `count`, `bytes`, `ms`, `permille`, `min`, or `max`).
+All names follow RFC 0007 section 6 naming rules: no hyphen-separated word of any segment is a unit word (`b`, `byte`, `bytes`, `kb`, `kib`, `mb`, `mib`, `gb`, `gib`, `count`, `ns`, `us`, `ms`, `millis`, `s`, `sec`, `secs`, `second`, `seconds`, `minute`, `minutes`, `h`, `hour`, `hours`, `day`, `days`, `permille`, `percent`, `pct`), and no segment equals a reserved key word (`bytes`, `count`, `ms`, `permille`, `min`, `max`, `scope`, `effect`, `key`, `ceiling`, `owner`, `note`, `peer`).
 
 ### 8. Mechanisms (`P14`), Data classes (`P8`), Assurance (`P1`), Failure modes
 
 - **Mechanism (`P14`):** All behaviour rules, class lists, labels, mode floors, bounds, and error messages live in packs, `schema/cedar/v1alpha1.cedarschema`, `schema/codes/policy.toml`, `schema/codes/model.toml`, and `limits.toml`. Rust code in `grdr_core::policy` implements only the schema loader, deterministic request construction, derivation table, and degradation function.
 - **Data classes (`P8`):** `v1alpha1.cedarschema`, classes, facts, labels, grades, ranks, `PolicyRuleId`, `PolicyError` (`LogValue::Code`), and `ContextField` paths are `structural`. Entity ids are opaque `identifier` values; `Request` builders never accept raw paths, argv strings, request bodies, or human identifiers (`D-51`), and `OpaqueId`/`PolicyError` never expose inner identifiers in `Debug` or `LogSafe`.
 - **Assurance effect (`P1`):** `derive` and `degrade` map decisions to enforced or observe-only verbs and mark `coverage_gap = true` when a control point cannot deny or a non-lifted non-fail-closed rule is not evaluable outside a boundary OS control point (`control: none` on observe-only control points). Schema loading and request construction carry existing assurance ranks without modifying them.
-- **Failure modes (`P9`, `D-15`):** Schema parse failure or warning prevents bundle activation (`GRDR-POLICY-0001`). Parser input exceeding `POLICY_PARSER_BYTES_MAX` is rejected (`GRDR-POLICY-0012`). Any input bound overflow rejects the build with its `GRDR-POLICY-*` code and never truncates (`GRDR-POLICY-0002` to `0007`). `NormaliserOutcome::Malformed` resolves upstream (`GRDR-POLICY-0008`) and in `derive` Row 1 to `DENY`. Evaluation errors resolve in `derive` Row 2 to fail-closed `DENY` (`policy-error`). Missing must-obligation `Snapshot` across Rows 3 to 8 resolves to `DENY` (`obligation-unmet`). Over `ModifyBudget::Twice`, Row 3 is skipped so no transform loop can starve a request.
+- **Failure modes (`P9`, `D-15`):** Schema parse failure or warning prevents bundle activation (`GRDR-POLICY-0001`). Parser input exceeding `POLICY_PARSER_INPUT_MAX` is rejected (`GRDR-POLICY-0012`). Any input bound overflow rejects the build with its `GRDR-POLICY-*` code and never truncates (`GRDR-POLICY-0002` to `0007`). `NormaliserOutcome::Malformed` resolves upstream (`GRDR-POLICY-0008`) and in `derive` Row 1 to `DENY`. Evaluation errors resolve in `derive` Row 2 to fail-closed `DENY` (`policy-error`). Missing must-obligation `Snapshot` across Rows 3 to 8 resolves to `DENY` (`obligation-unmet`). Over `ModifyBudget::Twice`, Row 3 is skipped so no transform loop can starve a request.
 
 ## Surfaces changed
 
@@ -993,7 +994,7 @@ This RFC authors design specification only (`rfcs/0013-cedar-schema-grdr-policy-
 
 1. **Exact alignment with `#739` (`RFC-1`):** `#739` will settle additional policy engine public types (`RuleMeta`, `CanonicalAction`, grants and retry metadata) in `grdr-model` and `grdr-core`. If `#739` changes naming conventions for `ActionClass`, `ApprovalGrade`, or `PolicyRuleId`, it may supersede those type names explicitly in `grdr-model` while keeping `v1alpha1.cedarschema` and `grdr_core::policy` semantics intact.
 2. **Exact `proptest` patch version (`1.12.x`) and `cargo vet` audit entries:** `#432` resolves and freezes the exact `Cargo.lock` versions, checksums, and `supply-chain/` exemptions/audits when admitting `cedar-policy = "=4.14.1"` and `proptest`.
-3. **Sub-issue re-plan scope upon acceptance:** Lead-core updates `#1595` (to place or depend on the shared `grdr-model` types), `#1597` (R1/AC-3 to import shared contract types from `grdr-model` rather than `grdr-core`), `#278` (`POLICY` area codes `0001`..`0012` plus `GRDR-MODEL-0012`), `#279` (add the twelve `policy.*` bounds including `policy.parser-bytes-max`), `#435` (`layout` test update for `cedar.rs` + `include_str!` allow-list), and opens the `architecture.toml` / `security/trust-core.paths` protected-change updates for `lead-agent-kit`.
+3. **Sub-issue re-plan scope upon acceptance:** Lead-core updates `#1595` (to place or depend on the shared `grdr-model` types), `#1597` (R1/AC-3 to import shared contract types from `grdr-model` rather than `grdr-core`), `#278` (`POLICY` area codes `0001`..`0012` plus `GRDR-MODEL-0012`), `#279` (add the twelve `policy.*` bounds including `policy.parser-input-max`), `#435` (`layout` test update for `cedar.rs` + `include_str!` allow-list), and opens the `architecture.toml` / `security/trust-core.paths` protected-change updates for `lead-agent-kit`.
 
 ## Review
 
