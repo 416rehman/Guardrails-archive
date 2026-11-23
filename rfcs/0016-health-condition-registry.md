@@ -13,7 +13,7 @@ Decision record: none yet
 
 This RFC establishes the single authoritative health condition registry at `schema/health.toml`, the generated layer-0 Rust module `grdr_schema::health` in [`crates/grdr-schema`](../crates/grdr-schema/Cargo.toml), the eleven initial first-run condition entries (from [design/11](../docs/design/11-endpoint-engineering.md) section 11, `#427`, `#1538`, and `#1673`), the "Content, not surface" rule for adding later conditions, and the boundary reconciling this registry with `#675` (`EN-DOC04`, moving `health.sensor` to `decision, A` emitted on change only).
 
-Once this RFC is accepted and its lead-core and interfaces items land, `#147` (`HealthSet`), `#149`, `#421`, `#427`, `#1538`, `#1673`, `#1636` (`/codes/<code>` pages), `#1644` (endpoint runbooks), and `#476` (`spool-unwritable` in its own RFC) consume one typed registry with zero ad-hoc condition strings.
+Once this RFC is accepted and its lead-core item (`Item 1`) lands, `#147` (`HealthSet`), `#149`, `#421`, `#427`, `#1538`, `#1673`, `#1636` (`/codes/<code>` pages, paired with source tokens from `Item 2`), `#1644` (endpoint runbooks), and `#476` (`spool-unwritable` in its own RFC) consume one typed registry with zero ad-hoc condition strings.
 
 ## Motivation
 
@@ -90,7 +90,7 @@ This RFC names [RFC 0007](./0007-grdr-model-and-grdr-schema-slice-0-surface.md) 
    - `crates/grdr-schema/tests/health_gen.rs`
    - `crates/grdr-schema/tests/fixtures/health/**`
 3. **CI drift and base-build history (`#1943` alignment):**
-   `#1943` R2 already discovers every `<module>` whose `src/<module>/generated.rs` exists and runs `cargo test --locked -p grdr-schema --test <module>_gen -- --exact drift`, so naming the test target `crates/grdr-schema/tests/health_gen.rs` with `drift()` integrates with `#1943` automatically. A companion hardened `pull_request_target` workflow (`.github/workflows/schema-health-history.yml`) runs base's `cargo test --locked -p grdr-schema --test health_gen -- --ignored history` on any PR changing `schema/health.toml` or `crates/grdr-schema/Cargo.toml` under `#1943` R5's hardening rules.
+   `#1943` R2 already discovers every `<module>` whose `src/<module>/generated.rs` exists and runs `cargo test --locked -p grdr-schema --test <module>_gen -- --exact drift`, so naming the test target `crates/grdr-schema/tests/health_gen.rs` with `drift()` integrates with `#1943` automatically. A companion hardened `pull_request_target` workflow (`.github/workflows/schema-health-history.yml`) runs base's `cargo test --locked -p grdr-schema --test health_gen -- --ignored history` on any PR changing `schema/health.toml` or `crates/grdr-schema/Cargo.toml`, reading base `crates/grdr-schema/Cargo.toml` for the crate `version` and head's `schema/health.toml` strictly as data under `#1943` R5's hardening rules.
 
 ### 3. Layer-0 and generator rules (RFC 0007 alignment)
 
@@ -105,7 +105,7 @@ Every constraint from RFC 0007 section 2 R1 to R11 applies identically to `grdr_
    - Active codes are obtained strictly via the generated `pub const` bindings (or `ACTIVE`). Raising an unregistered condition in `#147` fails to compile.
 5. **Deterministic generation (`drift` and `regenerate`):**
    - `cargo test --locked -p grdr-schema --test health_gen -- --exact drift` parses `schema/health.toml`, generates bytes in memory, normalises CRLF input line endings identically to LF, and asserts exact byte equality with `crates/grdr-schema/src/health/generated.rs`. On mismatch it prints the first differing line number (1-based) and the regenerate instruction, never modifying any file.
-   - `UPDATE_SCHEMA_GEN=1 cargo test --locked -p grdr-schema --test health_gen -- --ignored regenerate` writes `crates/grdr-schema/src/health/generated.rs` using LF line endings only, deterministic ASCII string escaping, entries sorted lexicographically by `code`, zero timestamps, and zero local checkout paths.
+   - `GRDR_SCHEMA_REGENERATE=1 cargo test --locked -p grdr-schema --test health_gen -- --ignored regenerate` writes `crates/grdr-schema/src/health/generated.rs` using LF line endings only, deterministic ASCII string escaping, entries sorted lexicographically by `code`, zero timestamps, and zero local checkout paths.
    - `line_endings` test verifies that CRLF-rewritten copies of `schema/health.toml` generate identical LF-only bytes and contain no `\r`.
 6. **By-value parity and compile-fail tests (`tests/construction.rs`):**
    - `cases` verifies every `active` `HealthEntry` in `ALL` matches its named `pub const` `HealthCode` across every accessor (`as_str`, `severity`, `scopes`, `surface`, `stale`, `owner`, `meaning_token`, `cause_token`, `fix_token`, `anchor`), verifies `ALL` is sorted strictly by `code` bytes, verifies `ACTIVE` equals the active subset of `ALL`, verifies `HealthSeverity::VARIANTS` ordering matches `Info < Warn < Degraded < Critical`, and verifies via doctests in `src/health.rs` (`compile_fail`) that external crates cannot construct `HealthCode`, `HealthEntry`, `Retirement`, `Seal`, or resolve a string directly into a `HealthCode`.
@@ -309,7 +309,7 @@ pub const fn find(code: &str) -> Option<&'static HealthEntry>;
 
 ```rust
 // Generated by `grdr-schema` health generator from `schema/health.toml`. Do not edit by hand.
-// Regenerate: `UPDATE_SCHEMA_GEN=1 cargo test --locked -p grdr-schema --test health_gen -- --ignored regenerate`
+// Regenerate: `GRDR_SCHEMA_REGENERATE=1 cargo test --locked -p grdr-schema --test health_gen -- --ignored regenerate`
 
 use super::registry::{
     ConditionState, HealthCode, HealthEntry, HealthScope, HealthSeverity, HealthSurface,
@@ -365,7 +365,7 @@ The file `schema/health.toml` is a UTF-8 TOML table containing only the `[[condi
 | `status` | string | yes | One of `"active"`, `"retired"` |
 | `owner` | string | yes | Regex `^design/[0-9]{2}$`, resolving to **exactly one** file matching `docs/design/<NN>-*.md` |
 | `retired_in` | string | if `status = "retired"`; forbidden if `"active"` | Semver `MAJOR.MINOR.PATCH` (`0` or `[1-9][0-9]*` per component, no `v` prefix, no pre-release/build tag) |
-| `replaced_by` | string | optional if `status = "retired"`; forbidden if `"active"` | Valid `code` differing from this entry's own `code`, resolving to an **`active`** entry in `schema/health.toml` |
+| `replaced_by` | string | optional if `status = "retired"`; forbidden if `"active"` | Valid `code` differing from this entry's own `code`, resolving to an existing entry in `schema/health.toml` with no cycle across replacement links (a newly added link on retirement must target an `active` entry) |
 
 #### Generator refusals (R3)
 
@@ -390,7 +390,7 @@ Every one of the following must be refused (each tested by an explicit fixture u
 12. Retirement rule errors:
     - `retired_in` or `replaced_by` present when `status = "active"`;
     - `retired_in` missing or failing `MAJOR.MINOR.PATCH` semver grammar when `status = "retired"`;
-    - `replaced_by` malformed, equal to the entry's own `code`, missing from `schema/health.toml`, or pointing to a `retired` entry.
+    - `replaced_by` malformed, equal to the entry's own `code`, missing from `schema/health.toml`, or forming a replacement cycle (`A -> ... -> A`). Static generation permits an existing retired entry's unchanged `replaced_by` to point to an entry that retired later so multi-step chains (`A -> B -> C`) stay valid.
 13. `owner` breaks `^design/[0-9]{2}$`, resolves to zero `docs/design/<NN>-*.md` files, or resolves to more than one file.
 
 #### Never-change rules and `history` check (R5)
@@ -400,9 +400,9 @@ Once an entry in `schema/health.toml` lands on `main`:
 1. **No deletion:** Every `code` present in the base `schema/health.toml` must remain present in the head `schema/health.toml`.
 2. **Immutable semantics:** `code`, `severity`, `scopes`, `surface`, and `stale` may never change on an existing entry (`scopes` compares as a mathematical set, independent of TOML array element ordering).
 3. **One-way lifecycle:** `status` may move only from `"active"` to `"retired"`, never from `"retired"` back to `"active"`.
-4. **Immutable retirement metadata:** Once `status = "retired"`, neither `retired_in` nor `replaced_by` may change. On the transition from `"active"` to `"retired"`, `retired_in` must be a valid `MAJOR.MINOR.PATCH` semver `>=` the package version in `crates/grdr-schema/Cargo.toml` (base crate version at transition).
+4. **Immutable retirement metadata and transition checks:** Once `status = "retired"`, neither `retired_in` nor `replaced_by` may change. On the transition from `"active"` to `"retired"`, `retired_in` must equal the `version` of `crates/grdr-schema/Cargo.toml` on the PR **base** (matching RFC 0007 section 4), and any `replaced_by` set on that transition must resolve to an entry whose status is `"active"` in the head `schema/health.toml` (preventing simultaneous `A <-> B` retirement cycles while preserving multi-step `A -> B -> C` chains).
 
-Enforcement: `crates/grdr-schema/tests/health_gen.rs` provides `#[ignore] fn history()`, parallel to `codes_gen::history` of RFC 0007 section 4. In CI (`pull_request_target` on `.github/workflows/schema-health-history.yml`), CI checks out and builds **only** the base branch, reads head's `schema/health.toml` and `crates/grdr-schema/Cargo.toml` version strictly as bounded regular-file git blobs (no symlinks, no submodules, capped count/byte budget), runs base's `history` test, and fails closed naming the offending entry `code` and broken R5 rule (or failing with `"could not look"` if either side cannot be read).
+Enforcement: `crates/grdr-schema/tests/health_gen.rs` provides `#[ignore] fn history()`, parallel to `codes_gen::history` of RFC 0007 section 4. In CI (`pull_request_target` on `.github/workflows/schema-health-history.yml`), CI checks out and builds **only** the base branch, reads `retired_in`'s expected `version` from base's `crates/grdr-schema/Cargo.toml`, reads head's `schema/health.toml` strictly as a bounded regular-file git blob (no symlinks, no submodules, capped count/byte budget), runs base's `history` test, and fails closed naming the offending entry `code` and broken R5 rule (or failing with `"could not look"` if either side cannot be read).
 
 ### 6. Rule for adding a later health condition (R6)
 
@@ -417,7 +417,7 @@ Enforcement: `crates/grdr-schema/tests/health_gen.rs` provides `#[ignore] fn his
 #### Requirements on any future item adding a health condition
 
 1. **Registry & generation:** The item that first raises the condition adds its `[[condition]]` entry to `schema/health.toml`, regenerates `crates/grdr-schema/src/health/generated.rs`, updates consumer doc/code pages as required, and names `RFC: 0016` for `rfc-required`.
-2. **Language tokens:** The item includes (or is blocked by a `squad:interfaces` item that adds) `health.<code>.meaning`, `health.<code>.cause`, and `health.<code>.fix` in `interface/strings/src/health.mf2.toml` before merging, verified by `grdr-interface-gen`.
+2. **Language tokens:** Once the `grdr-interface-gen` health token check is on `main` (Section 8, matching [RFC 0010](./0010-code-tokens-before-the-token-check.md) R1), the item either writes `health.<code>.meaning`, `health.<code>.cause`, and `health.<code>.fix` in `interface/strings/src/health.mf2.toml` itself (when its write set includes it) or is blocked by the `squad:interfaces` token item that writes them before merging. Before that check lands on `main`, the token item writes the tokens for every registered health condition on its merge base without holding up registry items.
 3. **Reference page & runbook:** Every condition regenerates `/codes/<code>` via `grdr-docgen codes` (`docs-check` `F2`), and every `degraded` or `critical` condition adds its runbook under `docs/runbooks/` (`docs-check` `F7`) in the same pull request (or is gated by it).
 4. **Risk lane:** Because `schema/**` and `crates/grdr-schema/**` are `high` in `.claude/risk-tiers.toml`, every such PR runs `eval-review` and `eval-security` on two distinct models/providers, plus CI `drift` and `history`.
 
@@ -469,10 +469,14 @@ The initial `schema/health.toml` contains **exactly eleven active entries** rais
   - `health.<code>.cause`
   - `health.<code>.fix`
 - Every token obeys `grdr-interface-gen` rules (`#1613` R2): `desc`, `max` graphemes, `risk` (`normal` or `safety`), typed arguments (`product` from `brand/brand.toml` rather than hard-coded product literals), and explicit indication inside `health.<code>.fix` when no user command applies (`#1636` R3).
-- **Single-writer ordering rule:** `interface/strings/src/health.mf2.toml` is written exclusively by a **`squad:interfaces`** item (never by the `lead-core` registry item). Until that interfaces item lands, the `lead-core` registry item is **blocked by** the interfaces item (`#668` R8), matching [RFC 0010](./0010-code-tokens-before-the-token-check.md)'s sequencing rule so `grdr-interface-gen` coverage checks never fail on `main`.
-- **Token check extension:** The interfaces item extends `grdr-interface-gen` (parallel to `#1853` R2) to iterate `grdr_schema::health::ALL` (every `active` entry, and optionally every `retired` entry for historical `/codes/<code>` pages; requiring all three tokens on every entry in `schema/health.toml` keeps `grdr-docgen codes` deterministic across active and retired pages alike) and fail with `GRDR-IFG-*` naming the code when `meaning_token()`, `cause_token()`, or `fix_token()` is missing from `interface/strings/src/health.mf2.toml`.
+- **Sequencing and single-writer ownership (following [RFC 0010](./0010-code-tokens-before-the-token-check.md) R1 to R5):** `interface/strings/src/health.mf2.toml` belongs to `squad:interfaces` in `.claude/owners.toml`, so the `lead-core` registry item (`Item 1`) never writes it. Because `#1613`, `#1853`, and the health-condition token check sit behind `#448`, blocking `Item 1` on the `squad:interfaces` token item (`Item 2`) before the check exists on `main` would deadlock (`Item 2` compiles its check against `grdr_schema::health::ALL` from `Item 1`) and stall `priority:p0` first-run path items (`#147`, `#149`, `#427`, `#1538`, `#1673`). Applying RFC 0010's rule directly:
+  - **Before the health token check is on `main`:** `Item 1` (`lead-core`) is blocked only by `#278`, never by `Item 2`. No check exists on `main` yet that fails for missing `health.mf2.toml` entries.
+  - **When `Item 2` (`lead-interfaces`) lands:** `Item 2` is blocked by `Item 1` (and `#1613` / `#1853`), authors `health.<code>.{meaning,cause,fix}` in `interface/strings/src/health.mf2.toml` for every condition present in `grdr_schema::health::ALL` at its merge base with `main`, and adds the token coverage check (`Item 2` R2/R3). Both `Item 2` and any open PR adding to `schema/health.toml` enforce RFC 0010 R5 at merge time (`git fetch origin main` and `git merge-base --is-ancestor origin/main <head>` must exit 0) so no unregistered-token condition lands across the merge window.
+  - **Once the health token check is on `main`:** Any later PR adding a condition to `schema/health.toml` either adds its three tokens inside the PR (with `.claude/owners.toml` write-set coordination) or is blocked by the `squad:interfaces` item that writes them first, so `grdr-interface-gen` never fails on `main` (`#668` R8).
+- **Token check extension:** `Item 2` extends `grdr-interface-gen` (parallel to `#1853` R2) to iterate `grdr_schema::health::ALL` (every `active` entry, and every `retired` entry so `/codes/<code>` pages stay complete) and fail with `GRDR-IFG-*` naming the code when `meaning_token()`, `cause_token()`, or `fix_token()` is missing from `interface/strings/src/health.mf2.toml`.
 - **Docgen & runbooks (`#1636`, `#1644`, `#1629`):**
-  - `grdr-docgen codes --errors schema/codes --health schema/health.toml --out docs/product/reference/_generated/codes` reads `schema/health.toml` and `interface/strings/src/health.mf2.toml` to emit `/codes/<code>` pages (`F2`). `owner_squad` on generated pages derives from `owner` (`design/11` -> `endpoint`; `design/21` -> `core`) via `.claude/owners.toml`, and `stability` derives from `grdr-schema`'s row in `surfaces.toml` plus condition `status` (`retired` entries render deprecation notice).
+  - `grdr-docgen codes --errors schema/codes --health schema/health.toml --out docs/product/reference/_generated/codes` reads `schema/codes`, `schema/health.toml`, and the source tokens to emit `/codes/<code>` pages (`F2`).
+  - **Resolving `owner_squad` and `stability` cleanly (`#1636` R2):** `.claude/owners.toml` maps repository file globs (`schema/**` -> `squad.core`, while `docs/design/**` maps to `direction.chief-architect` rather than a squad, and design document headers carry free prose such as `Endpoint platform` or `platform`), not `design/NN` strings. Accordingly, if `#1636` assigns `owner_squad` from the registry file's `.claude/owners.toml` owner, all entries take `core` (`squad.core`). If instead `#1636` assigns semantic `owner_squad` per `owner` (`design/11`, `design/21`), it reads a declarative `design/NN -> squad.<id>` mapping table supplied as data (for example a `schema/design-owners.toml` table or docs-generator configuration mapping `design/11 -> endpoint`, `design/21 -> core` matching `.claude/owners.toml` `[squad.<id>]` names, with `#1636` R1/AC-2 adjusted if another input flag is passed), and reads `surfaces.toml` for `stability` (`experimental` for `grdr-schema`, with deprecation notice for `retired` conditions), never hard-coding `design/NN -> squad` rules in `grdr-docgen` source (P14, D-69).
   - `docs-check.mjs --check F7` (`#1629`) reads `schema/health.toml` and verifies every active `degraded` or `critical` condition (10 of the 11 seed entries; `stale-bundle` has `severity = "warn"`) has a matching runbook in `docs/runbooks/endpoint/<code>.md` (`#1644`).
 
 #### Data classes (R9, P8)
@@ -502,26 +506,28 @@ The initial `schema/health.toml` contains **exactly eleven active entries** rais
 | PR deletes an entry or mutates an immutable field (`R5`) | `pull_request_target` `history` job fails the PR | Error naming the offending `code` and R5 invariant |
 | Base `history` workflow cannot read base or head blob | Job fails closed (never passes) | Output `"could not look"` naming the unreadable path or ref |
 | Unregistered health condition referenced in `grdr-daemon` | Crate build fails | Rust compile error (`HealthCode` sealed; `#147` R2) |
-| Missing `health.<code>.*` token in `interface/strings/src/health.mf2.toml` | `grdr-interface-gen` fails before merge | `GRDR-IFG-*` finding naming condition `code` and missing token id |
+| Missing `health.<code>.*` token in `interface/strings/src/health.mf2.toml` (once health token check is on `main`) | `grdr-interface-gen` fails before merge (or before that, written by `Item 2` across all codes on `main`) | `GRDR-IFG-*` finding naming condition `code` and missing token id |
 | Missing runbook for `degraded` or `critical` code | `docs-check` `F7` fails docs CI | `F7` finding naming `code` and missing `docs/runbooks/` coverage |
 
 ### 10. Items filed on acceptance (R11)
 
 When RFC 0016 transitions to `Accepted` with its `ADR-*` record:
 
-1. **File `lead-core` implementation item:**
+1. **File `lead-core` implementation item (`Item 1`):**
    - **Write set:** `schema/health.toml`, `crates/grdr-schema/Cargo.toml`, `crates/grdr-schema/AGENTS.md`, `crates/grdr-schema/src/lib.rs`, `crates/grdr-schema/src/health.rs`, `crates/grdr-schema/src/health/**`, `crates/grdr-schema/tests/gen/health.rs`, `crates/grdr-schema/tests/gen/health/**`, `crates/grdr-schema/tests/health_gen.rs`, `crates/grdr-schema/tests/construction.rs`, `crates/grdr-schema/tests/fixtures/health/**`.
    - **Cites:** `RFC: 0016`.
-   - **Blocked by:** `#278` (shared generator harness and `construction.rs` scaffold) and the new `squad:interfaces` token item below (matching `#668` R8).
-2. **File `lead-interfaces` token item (`R8`):**
+   - **Blocked by:** `#278` (shared generator harness and `construction.rs` scaffold). Per [RFC 0010](./0010-code-tokens-before-the-token-check.md) R1 to R3, `Item 1` is **not** blocked by `Item 2` while the health token check is absent from `main`, so first-run path items proceed without waiting on the `#1613 -> #449/#1612 -> #448` chain.
+2. **File `lead-interfaces` token item (`Item 2`, `R8`):**
    - **Write set:** `interface/strings/src/health.mf2.toml` and `grdr-interface-gen` coverage extension (`crates/grdr-interface-gen/**`).
-   - **Scope:** Author `health.<code>.{meaning,cause,fix}` (33 source-locale tokens for the 11 slice-0 entries) with `Brand`/product parametrisation and explicit fix tokens, and wire `grdr-interface-gen` validation over `grdr_schema::health::ALL` (parallel to `#1853`).
-3. **File `lead-agent-kit` gate item:**
+   - **Blocked by:** `Item 1` (`grdr_schema::health::ALL` must exist to iterate and check), `#1613`, and `#1853`.
+   - **Scope:** Author `health.<code>.{meaning,cause,fix}` for every registered health condition present at its merge base (starting with all 11 slice-0 entries, 33 source-locale tokens) with `Brand`/product parametrisation and explicit fix tokens, and wire `grdr-interface-gen` validation over `grdr_schema::health::ALL`. Enforces [RFC 0010](./0010-code-tokens-before-the-token-check.md) R5 (`git merge-base --is-ancestor origin/main <head>`) at merge time on `Item 2` and any concurrent `schema/health.toml` PR.
+3. **File `lead-agent-kit` gate item (`Item 3`):**
    - **Write set:** `security/trust-core.paths`, `.github/workflows/schema-health-history.yml` (and `.github/workflows/verify.yml` if needed beyond `#1943`'s dynamic loop).
+   - **Blocked by:** `Item 1` (so `main`'s base commit holds `schema/health.toml` and `health_gen` before the `pull_request_target` workflow executes) and `#1943`. Once landed, blocks subsequent PRs that add or retire conditions in `schema/health.toml`.
    - **Scope:** Add the 4 `health` mechanism/fixture lines to `security/trust-core.paths` (keeping `src/health/generated.rs` out) and add the hardened base-build `pull_request_target` `history` workflow.
 4. **Update consumer issues and design documents:**
    - Apply [design/11](../docs/design/11-endpoint-engineering.md) amendments (`schema/health.toml`, extension point `"Content, not surface"`, `EN-F1` clarification) and check [design/34](../docs/design/34-documentation-support-and-lifecycle.md) path alignment (`#1687` carries `#675`'s `design/04` edit).
-   - Re-point `blockedBy` on `#147`, `#476`, `#1636`, and `#1644` from `#668` to the new `lead-core` item (`#668` R11 / AC-4), and request lead updates in `#147`, `#476`, and `#1636` AC-2 so every path reads `schema/health.toml`.
+   - Re-point `blockedBy` on `#147`, `#476`, `#1636`, and `#1644` from `#668` to `Item 1` (`#668` R11 / AC-4), and request lead updates in `#147`, `#476`, and `#1636` AC-2 so every path reads `schema/health.toml` (and any `design/NN -> owner_squad` data table `#1636` reads).
 
 ## Surfaces changed
 
@@ -547,7 +553,7 @@ When RFC 0016 transitions to `Accepted` with its `ADR-*` record:
 ## Drawbacks
 
 1. Adding a third generated module to `crates/grdr-schema` requires updating RFC 0007's fixed 7-file `layout` assumption and extending `security/trust-core.paths` and base-build `history` workflows through `lead-agent-kit`. Making `layout` modular over whichever of `{codes, limits, health}` exist limits churn while preserving strict rejection of stray source files.
-2. Requiring all 3 `health.<code>.*` language tokens (`interface/strings/src/health.mf2.toml`) and a runbook (`docs/runbooks/`) for `degraded`/`critical` codes binds registry merges to coordination between `squad:core`, `squad:interfaces`, and docs/runbook owners (`#147`, `#1636`, `#1644`, `#1629`). Separating `health.mf2.toml` into its own `squad:interfaces` blocking item prevents `main` token-check breakage at the expense of two coordinated PRs.
+2. Requiring all 3 `health.<code>.*` language tokens (`interface/strings/src/health.mf2.toml`) and a runbook (`docs/runbooks/`) for `degraded`/`critical` codes once the checks land on `main` binds subsequent registry merges to coordination across `squad:core`, `squad:interfaces`, and docs/runbook owners (`#147`, `#1636`, `#1644`, `#1629`), and requires RFC 0010 R5 merge-base currency across the bootstrap window before `Item 2` lands.
 3. Fixed `severity`, `scopes`, `surface`, and `stale` immutability under R5 means an overly narrow `scopes` slice or misclassified severity cannot be edited on a released `code`; changing it requires retiring that `code` (`replaced_by = "<new-code>"`) and introducing a clean replacement. Care in initial entries (especially `["device", "component"]` on persistent keys and non-safe-mode `critical` on `floor-missing` and `sandbox-violation`) mitigates this.
 
 ## Unresolved questions
