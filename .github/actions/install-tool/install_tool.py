@@ -172,6 +172,7 @@ class Runtime:
 class HttpsOnlyRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         if urllib.parse.urlsplit(newurl).scheme != "https":
+            fp.close()
             raise Refusal(FETCH, f"an HTTP {code} redirect leaves https")
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
@@ -390,6 +391,7 @@ def receive(item, timeout, open_url):
     except Refusal as refusal:
         return refusal
     except urllib.error.HTTPError as error:
+        error.close()
         return Refusal(FETCH, f"HTTP status {error.code}")
     except Exception as error:  # The worker thread hands every failure back as a refusal.
         return Refusal(FETCH, f"the request failed: {type(error).__name__}")
