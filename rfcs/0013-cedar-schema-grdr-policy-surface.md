@@ -6,19 +6,19 @@ Model: Gemini 4 Neon
 State: Review
 Design issue: #431
 Spine: D-05, D-07, D-08, D-09, D-10, D-11, D-13, D-15, D-25, D-28, D-44, D-51, D-53, D-60, D-61, D-63, D-69, P1, P2, P7, P8, P9, P14, P17 (no spine text changes)
-Surfaces: Cedar schema `Grdr` v1alpha1 (`schema/cedar/v1alpha1.cedarschema`); public crate `grdr-schema` (layer 0: `cedar` module, `POLICY` error-code area, `policy.*` limits rows); public crate `grdr-model` (layer 1: shared policy contract value types); public crate `grdr-core` (layer 1: `policy` module `schema`, `request`, `derive`, `degrade`, exposing `cedar_policy::{Schema, Request, Entities}` under `experimental` stability); tool crate `grdr-policy-ref` (`layer = "tool"`, reference `derive` and `degrade` over `grdr-model` types); third-party dependencies `cedar-policy = "=4.14.1"` (`default-features = false`, normal on `grdr-core` only) and `proptest` (`dev-dependency` on `grdr-core` and `grdr-policy-ref`). As proposals: `surfaces.toml`, `architecture.toml`, `security/trust-core.paths`, `schema/codes/areas.toml`, `schema/codes/policy.toml`, `limits.toml`, `Cargo.toml`, `Cargo.lock`, `docs/design/03`, and `docs/design/12`
+Surfaces: Cedar schema `Grdr` v1alpha1 (`schema/cedar/v1alpha1.cedarschema`); public crate `grdr-schema` (layer 0: `cedar` module, `POLICY` error-code area `GRDR-POLICY-0001`..`0012`, `MODEL` extension `GRDR-MODEL-0012`, `policy.*` limits rows); public crate `grdr-model` (layer 1: shared policy contract value types at crate root); public crate `grdr-core` (layer 1: `policy` module `schema`, `request`, `derive`, `degrade`, exposing `cedar_policy::{Schema, Request, Entities}` while `experimental`); tool crate `grdr-policy-ref` (`layer = "tool"`, reference `derive` and `degrade` over `grdr-model` types); third-party dependencies `cedar-policy = "=4.14.1"` (`default-features = false`, normal on `grdr-core` only) and `proptest` (`dev-dependency` on `grdr-core` and `grdr-policy-ref`). As amendments: RFC 0007 (`ADR-0038`) sections 2 R10, 8, and 11 (`grdr-schema` `src/` file inventory, `layout` `dep-info`/token allow-list for `cedar.rs`, and `security/trust-core.paths`); RFC 0009 (`ADR-0041`) sections 8, 9, and 13 (adding shared policy types at `grdr-model` crate root, registering `GRDR-MODEL-0012`, and reusing `grdr_model::Tamper`). As proposals: `surfaces.toml`, `architecture.toml`, `security/trust-core.paths`, `schema/codes/areas.toml`, `schema/codes/policy.toml`, `schema/codes/model.toml`, `limits.toml`, `Cargo.toml`, `Cargo.lock`, `docs/design/03`, and `docs/design/12`
 Decision record: none yet
 
 ## Summary
 
-This RFC decides the six open design items of `#431` for WI-0018 (`#21`) and its slice-0 dependants (`#432`, `#434`, `#435`, `#436`, `#1600`, `#1602`, `#1595`, `#1597`):
+This RFC decides the six open design items of `#431` for WI-0018 (`#21`) and its slice-0 dependants (`#432`, `#434`, `#435`, `#436`, `#1600`, `#1602`, `#1595`, `#1597`), and states explicit amendments to [RFC 0007](./0007-grdr-model-and-grdr-schema-slice-0-surface.md) (`ADR-0038`) and [RFC 0009](./0009-grdr-model-slice-0-surface.md) (`ADR-0041`):
 
 1. **R1 (Cedar schema `Grdr` v1alpha1):** Fixes the complete `.cedarschema` text for Cedar 4.14.x (language 4.6), covering the 6 principal-side-only entities plus 12 resource entities (`Agent` serving both roles, 18 entities total), 4 action groups (`any`, `file`, `net`, `mcp`), 15 concrete actions matching the spine action classes verbatim, per-action and common context records, the reserved empty `schedule` seam, and strict admission of all 22 worked policies of `docs/design/12` sections 3 and 5.
-2. **R2 (Schema location):** Places the canonical text at `schema/cedar/v1alpha1.cedarschema`, embedded into layer-0 `grdr-schema::cedar` (`V1ALPHA1` and `SCHEMA_VERSION`), rather than creating a top-level `grdr-schema/` folder outside `crates/`.
+2. **R2 (Schema location):** Places the canonical text at `schema/cedar/v1alpha1.cedarschema`, embedded into layer-0 `grdr-schema::cedar` (`V1ALPHA1` and `SCHEMA_VERSION`), and amends RFC 0007 section 2 R10 and section 8 so `tests/construction.rs` `layout` accepts `crates/grdr-schema/src/cedar.rs` and its `include_str!` dependency edge on `schema/cedar/v1alpha1.cedarschema`.
 3. **R3 (Neutral values and `absent`/`pending`):** Keeps all Cedar context records and fields required with typed neutral values (`[]`, `false`, `0`, `""`, `{}`) when absent or pending, and keeps `absent` and `pending` as engine-side `BTreeSet<ContextField>` sets on `CedarRequest`. This validates all 22 worked rules strictly with zero rule edits and prevents policy rules from branching on `absent` or `pending` directly.
-4. **R4 (Rust surface of `grdr_core::policy` and `grdr-model` boundary):** Specifies `policy::{schema, request, derive, degrade}`, typed closed enums for inputs and outcomes, pure derivation and degradation data types hosted in `grdr-model` and re-exported from `grdr_core::policy` so `grdr-policy-ref` links only `grdr-model` (never `grdr-core` or `cedar-policy`), and `ARCH-007` listing of `cedar-policy` in `surfaces.toml` while `grdr-core` remains `experimental`.
+4. **R4 (Rust surface of `grdr_core::policy` and `grdr-model` boundary):** Specifies `policy::{schema, request, derive, degrade}`, typed closed enums for inputs and outcomes, `PolicyRuleId` parsing and accessors, leak-free `PolicyError` (`LogSafe` via `Code`), and pure derivation and degradation data types hosted at `grdr-model`'s crate root (amending RFC 0009 and reusing `grdr_model::Tamper`) and re-exported into `grdr_core::policy` so `grdr-policy-ref` links only `grdr-model`. Keeps `surfaces.toml` at `(name, class, rfc)` with `grdr-core` `experimental` and tracks `cedar-policy` exposure under `ARCH-007`.
 5. **R5 (Dependencies):** Pins `cedar-policy = "=4.14.1"` with `default-features = false` as a normal dependency of `grdr-core` only (`ARCH-004`), and admits `proptest` (`MIT OR Apache-2.0`) as a dev-dependency of `grdr-core` and `grdr-policy-ref`.
-6. **R6 (`POLICY` error codes and limits):** Registers subsystem area `POLICY` (`GRDR-POLICY-0001` to `0011`) via `#278` and nine `[bound.policy.*]` entries in `limits.toml` via `#279` under RFC 0007 rules.
+6. **R6 (`POLICY` error codes and limits):** Registers subsystem area `POLICY` (`GRDR-POLICY-0001` to `0012`) plus `GRDR-MODEL-0012` via `#278` and twelve `[bound.policy.*]` entries (including `policy.parser-bytes-max`, `policy.rule-id-max`, and `policy.class-tag-max`) in `limits.toml` via `#279` under RFC 0007 rules.
 
 ## Motivation
 
@@ -420,7 +420,7 @@ Every worked policy printed in [docs/design/12](../docs/design/12-policy-engine.
 | 16b (section 5) | `agents.undetermined.control-files` | `Process` | `file.write`, `file.delete` | `[Path]` (narrows from `file.*`) | `principal.agent_capable_host`, `principal.actor_kind`, `resource.classes` |
 | 17 (section 5) | `secrets.prompt-redact` | unscoped (`[Session, Process]`) | `llm.request` | `ModelEndpoint` | `context.facts` |
 
-### 3. R2: Schema file location and `grdr-schema` embedding
+### 3. R2: Schema file location, `grdr-schema` embedding, and RFC 0007 amendment
 
 The canonical schema file lives at `schema/cedar/v1alpha1.cedarschema`.
 
@@ -430,6 +430,14 @@ The canonical schema file lives at `schema/cedar/v1alpha1.cedarschema`.
   - `pub const V1ALPHA1: &str = include_str!("../../../schema/cedar/v1alpha1.cedarschema");`
 - `grdr-schema` takes zero new dependencies (`#![forbid(unsafe_code)]`, `#![deny(clippy::arithmetic_side_effects)]`, constants only).
 - `docs/design/12` section 2 updates `grdr-schema/policy/v1alpha1.cedarschema` to `schema/cedar/v1alpha1.cedarschema` in a design-doc follow-up.
+
+#### Amendments to [RFC 0007](./0007-grdr-model-and-grdr-schema-slice-0-surface.md) (`ADR-0038`)
+
+RFC 0007 section 2 R10 fixed `crates/grdr-schema/src/` at seven files and forbade `include_str!` and non-`src/` files in `rustc --emit=dep-info` under `tests/construction.rs` (`layout`), while section 11 requires any module-tree change to name RFC 0007 explicitly as amended. This RFC amends RFC 0007 sections 2 R10, 8, and 11:
+
+1. **Module tree (`crates/grdr-schema/src/`):** Adds `crates/grdr-schema/src/cedar.rs` as an eighth source file alongside RFC 0007's seven (`lib.rs`, `codes.rs`, `codes/registry.rs`, `codes/generated.rs`, `limits.rs`, `limits/registry.rs`, `limits/generated.rs`). Following the incremental `layout` design also proposed by RFC 0016 (`health`), `#435` writes `layout` in `tests/construction.rs` to assert the exact file set for whichever modules among `{codes, limits, health, cedar}` are declared in `src/lib.rs`, so `#278`, `#279`, `#435`, and RFC 0016's items can land in any order without breaking `layout` in between (yielding 11 files when both `health` and `cedar` are present).
+2. **`dep-info` and token allow-list for `cedar.rs` only:** `layout`'s `rustc --emit=dep-info` check admits `schema/cedar/v1alpha1.cedarschema` solely as the source embedded by `crates/grdr-schema/src/cedar.rs`, and its token scan permits `include_str!` solely in `crates/grdr-schema/src/cedar.rs`. Every other hand-written file under `crates/grdr-schema/src/` (`lib.rs`, `codes*`, `limits*`, `health*`) keeps RFC 0007's strict ban on `include!`, `include_str!`, `include_bytes!`, `path`, `cfg_attr`, inline `mod` bodies, and `macro_rules!` outside `lib.rs`.
+3. **Trust-core list (`security/trust-core.paths`):** Proposes adding `crates/grdr-schema/src/cedar.rs` alongside RFC 0007's trust-core paths (`schema/cedar/**` is already high-tier under `schema/**`).
 
 ### 4. R3: Neutral values and `absent`/`pending` sets
 
@@ -456,139 +464,179 @@ The canonical schema file lives at `schema/cedar/v1alpha1.cedarschema`.
 
 #### Stability class and `ARCH-007` exposure
 
-`grdr-core` stays `class = "experimental"` in [`surfaces.toml`](../surfaces.toml) (`D-60`). Because `#435` R3 returns `cedar_policy::Schema` directly from `grdr_core::policy::schema::load()`, and request builders expose `cedar_policy::{Request, Entities}`, `ARCH-007` requires recording `cedar-policy` in `surfaces.toml` on the `grdr-core` entry (for example `exposes = ["cedar-policy"]`, referencing RFC 0013) while `grdr-core` is `experimental`. Moving `grdr-core` to `beta` or `stable` in a later RFC requires wrapping `cedar_policy::{Schema, Request, Entities}` behind opaque Guardrails types first so Cedar upgrades cannot leak breaking type changes into `beta` or `stable` APIs.
+`grdr-core` stays `class = "experimental"` in [`surfaces.toml`](../surfaces.toml) (`D-60`). Because `surfaces.toml`'s `[[crate]]` schema accepts only the three keys `name`, `class`, and `rfc` (`rfc = "0005"` at creation, updated or kept under `experimental`), this RFC introduces no extra keys into `surfaces.toml`. Because `#435` R3 returns `cedar_policy::Schema` directly from `grdr_core::policy::schema::load()`, and request builders expose `cedar_policy::{Request, Entities}`, `ARCH-007` authorises `cedar-policy` public exposure on `grdr-core` only while `grdr-core` remains `experimental` (tracked via `ARCH-007` configuration in `architecture.toml` and this RFC). Moving `grdr-core` to `beta` or `stable` in a later RFC requires wrapping `cedar_policy::{Schema, Request, Entities}` behind opaque Guardrails types first so Cedar upgrades cannot leak breaking type changes into `beta` or `stable` APIs.
 
-#### Shared value types in `grdr-model` (`#434`, `#1595`, `#1597` coordination)
+#### Shared value types in `grdr-model` and amendment to [RFC 0009](./0009-grdr-model-slice-0-surface.md) (`ADR-0041`)
 
-`#434` forbids `grdr-policy-ref` from taking any normal dependency on `grdr-core` or `cedar-policy`, whereas `#1595` implements `derive` and `degrade` in `grdr_core::policy` and `#1597` tests `grdr_policy_ref::{derive, degrade}` over the exact same Rust input and output types. Defining the pure policy-verdict contract types in `grdr-model` (layer 1, zero `cedar-policy` dependency) and re-exporting them publicly from `grdr_core::policy::{self, derive, degrade}` resolves this cleanly:
+`#434` forbids `grdr-policy-ref` from taking any normal dependency on `grdr-core` or `cedar-policy`, whereas `#1595` implements `derive` and `degrade` in `grdr_core::policy` and `#1597` tests `grdr_policy_ref::{derive, degrade}` over the exact same Rust input and output types. Hosting the pure policy-verdict contract types in `grdr-model` (layer 1, zero `cedar-policy` dependency) and re-exporting them publicly from `grdr_core::policy::{self, derive, degrade}` resolves this cleanly:
 
 - `grdr-policy-ref` depends normally on `grdr-model` only (`#434` AC-2 passes).
 - `grdr_core::policy` exposes the complete R4 surface directly (`grdr_core::policy::derive`, `grdr_core::policy::degrade`, `grdr_core::policy::{ControlPointCaps, Derived, Executed, ...}`).
 - Differential tests in `grdr-core` (`tests/policy_derive_differential.rs`) pass identical values to both implementations with zero translation and zero shared evaluator code (`D-63`).
 
-All types shared with `grdr-model` below use explicit closed enums (no raw booleans for multi-state modes, no raw strings where closed vocabularies exist), `BTreeSet` rather than hash sets (deterministic iteration order across Linux, macOS, Windows, C ABI, and `wasm32-unknown-unknown`), and implement `Debug` without leaking identifiers outside `P8` bounds. Types already scheduled in RFC 0009 (`OrgId`, `DeviceId`, `SessionId`, `AgentInstanceId`, `GrantId`, `LogSafe`) are reused rather than duplicated.
+Under RFC 0009 section 13 and section 16, adding public types to `grdr-model` amends RFC 0009 (`ADR-0041`). This RFC amends RFC 0009 sections 8, 9, and 13 and obeys every RFC 0009 convention:
+
+1. **One path per item (RFC 0009 R3):** All public policy contract types, enums, and `PolicyRuleIdError` sit at `grdr_model`'s crate root (implemented in private submodules) and are re-exported into `grdr_core::policy`.
+2. **Closed wire enums (RFC 0009 R5 and section 13):** Every fieldless closed enum added to `grdr-model` (`ActionClass`, `ControlPoint`, `Verdict`, `ExecutedVerb`, `DerivationRow`, `ModifyBudget`, `EnforcedMode`, `ApprovalGrade`, `Obligation`, `Transform`, `NormaliserOutcome`, `ControlPointCoverage`, `DecisionReason`) is declared through RFC 0009's `wire_enum!` macro with lowercase `WireName`-grammar words, providing `pub const VARIANTS: &'static [Self]`, `pub const fn as_str(self) -> &'static str`, `pub const fn wire_name(self) -> WireName`, and `impl LogSafe` (`LogValue::Enum`). Consistent with RFC 0009 section 13, these enums are exhaustive while `grdr-model` is `experimental` (no `#[non_exhaustive]`).
+3. **Existing RFC 0009 types reused:** Reuses `grdr_model::Tamper` (`User < Admin < Platform`, RFC 0009 section 8) directly in `AssuranceInput` instead of adding a duplicate rank enum, alongside `OrgId`, `DeviceId`, `SessionId`, `AgentInstanceId`, `GrantId`, `InstallProfile`, `LogSafe`, `LogValue`, and `WireName`.
+4. **Error registration (RFC 0009 section 9):** Registers `GRDR-MODEL-0012` (`RULE_ID_FORM`, `class = "input"`, `connect = "invalid_argument"`) in `schema/codes/model.toml` for `PolicyRuleIdError`.
+5. **Deterministic containers and `P8`:** Uses `BTreeSet` rather than hash sets across all contract types so iteration order is identical on Linux, macOS, Windows, C ABI, and `wasm32-unknown-unknown`, and leaks no runtime identifiers in `Debug` or logs.
 
 #### Exact shared contract signatures (owned by `grdr-model`, re-exported by `grdr_core::policy`)
 
 ```rust
-// Action classes, matching the 15 Cedar action ids verbatim.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[non_exhaustive]
-pub enum ActionClass {
-    Exec,
-    FileRead,
-    FileWrite,
-    FileDelete,
-    NetConnect,
-    NetRequest,
-    LlmRequest,
-    McpConnect,
-    McpCall,
-    CredUse,
-    AgentSpawn,
-    ConfigChange,
-    Elevate,
-    UiAct,
-    DataFlow,
+// Every fieldless enum below is declared with RFC 0009's `wire_enum!`, giving
+// VARIANTS, as_str(), wire_name(), and LogSafe (LogValue::Enum).
+
+wire_enum! {
+    pub enum ActionClass {
+        Exec => "exec",
+        FileRead => "file.read",
+        FileWrite => "file.write",
+        FileDelete => "file.delete",
+        NetConnect => "net.connect",
+        NetRequest => "net.request",
+        LlmRequest => "llm.request",
+        McpConnect => "mcp.connect",
+        McpCall => "mcp.call",
+        CredUse => "cred.use",
+        AgentSpawn => "agent.spawn",
+        ConfigChange => "config.change",
+        Elevate => "elevate",
+        UiAct => "ui.act",
+        DataFlow => "data.flow",
+    }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[non_exhaustive]
-pub enum ControlPoint {
-    Hook,
-    McpBroker,
-    Proxy,
-    Sandbox,
-    Sensor,
-    Gateway,
-    Browser,
-    Connector,
+wire_enum! {
+    pub enum ControlPoint {
+        Hook => "hook",
+        McpBroker => "mcp-broker",
+        Proxy => "proxy",
+        Sandbox => "sandbox",
+        Sensor => "sensor",
+        Gateway => "gateway",
+        Browser => "browser",
+        Connector => "connector",
+    }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum Verdict {
-    Allow,
-    Deny,
-    Modify,
-    StepUp,
-    Defer,
+wire_enum! {
+    pub enum Verdict {
+        Allow => "allow",
+        Deny => "deny",
+        Modify => "modify",
+        StepUp => "step_up",
+        Defer => "defer",
+    }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum ExecutedVerb {
-    Allow,
-    Deny,
-    DenyWithRetryToken,
-    Hold,
-    Modify,
-    ObserveOnly,
+wire_enum! {
+    pub enum ExecutedVerb {
+        Allow => "allow",
+        Deny => "deny",
+        DenyWithRetryToken => "deny-with-retry-token",
+        Hold => "hold",
+        Modify => "modify",
+        ObserveOnly => "observe-only",
+    }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum DerivationRow {
-    MalformedInput = 1,
-    PolicyError = 2,
-    ModifyRemedy = 3,
-    BlockOrUnmetAsk = 4,
-    AskStepUp = 5,
-    PendingDefer = 6,
-    NotEvaluableFallback = 7,
-    BasePermitAllow = 8,
-    DefaultDeny = 9,
+wire_enum! {
+    pub enum DerivationRow {
+        MalformedInput => "row-1-malformed-input",
+        PolicyError => "row-2-policy-error",
+        ModifyRemedy => "row-3-modify-remedy",
+        BlockOrUnmetAsk => "row-4-block-or-unmet-ask",
+        AskStepUp => "row-5-ask-step-up",
+        PendingDefer => "row-6-pending-defer",
+        NotEvaluableFallback => "row-7-not-evaluable",
+        BasePermitAllow => "row-8-base-permit",
+        DefaultDeny => "row-9-default-deny",
+    }
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum ModifyBudget {
-    #[default]
-    Fresh,
-    Once,
-    Twice,
+wire_enum! {
+    #[derive(Default)]
+    pub enum ModifyBudget {
+        #[default]
+        Fresh => "fresh",
+        Once => "once",
+        Twice => "twice",
+    }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum EnforcedMode {
-    Ask,
-    Block,
+wire_enum! {
+    pub enum EnforcedMode {
+        Ask => "ask",
+        Block => "block",
+    }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum ApprovalGrade {
-    G0 = 0,
-    G1 = 1,
-    G2 = 2,
-    G3 = 3,
+wire_enum! {
+    #[derive(PartialOrd, Ord)]
+    pub enum ApprovalGrade {
+        G0 => "g0",
+        G1 => "g1",
+        G2 => "g2",
+        G3 => "g3",
+    }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum Obligation {
-    Receipt,
-    Expect,
-    Snapshot,
-    PinRecorder,
-    NotifyUser,
-    NotifySponsor,
+wire_enum! {
+    pub enum Obligation {
+        Receipt => "receipt",
+        Expect => "expect",
+        Snapshot => "snapshot",
+        PinRecorder => "pin-recorder",
+        NotifyUser => "notify-user",
+        NotifySponsor => "notify-sponsor",
+    }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum Transform {
-    RedactSecrets,
-    WrapLauncher,
-    SwapCredential,
+wire_enum! {
+    pub enum Transform {
+        RedactSecrets => "redact-secrets",
+        WrapLauncher => "wrap-launcher",
+        SwapCredential => "swap-credential",
+    }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum NormaliserOutcome {
-    Valid,
-    Unresolved,
-    Malformed,
+wire_enum! {
+    pub enum NormaliserOutcome {
+        Valid => "valid",
+        Unresolved => "unresolved",
+        Malformed => "malformed",
+    }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum ControlPointCoverage {
-    None,
-    Request,
-    ScopedBoundary,
-    MandatoryBoundary,
+wire_enum! {
+    #[derive(PartialOrd, Ord)]
+    pub enum ControlPointCoverage {
+        None => "none",
+        Request => "request",
+        ScopedBoundary => "scoped-boundary",
+        MandatoryBoundary => "mandatory-boundary",
+    }
+}
+
+wire_enum! {
+    pub enum DecisionReason {
+        MalformedNormaliser => "malformed-normaliser",
+        PolicyError => "policy-error",
+        RemedyModify => "remedy-modify",
+        BlockedByRule => "blocked-by-rule",
+        AskGradeUnavailable => "ask-grade-unavailable",
+        AskStepUp => "ask-step-up",
+        PendingDefer => "pending-defer",
+        PendingDeadlineExpired => "pending-deadline-expired",
+        NotEvaluableStepUp => "not-evaluable-step-up",
+        NotEvaluableExpect => "not-evaluable-expect",
+        NotEvaluableCoverageGap => "not-evaluable-coverage-gap",
+        BasePermit => "base-permit",
+        DefaultDeny => "default-deny",
+        ObligationUnmet => "obligation-unmet",
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -597,28 +645,23 @@ pub enum PendingWindow {
     DeadlineExpired,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[non_exhaustive]
-pub enum DecisionReason {
-    MalformedNormaliser,
-    PolicyError,
-    RemedyModify,
-    BlockedByRule,
-    AskGradeUnavailable,
-    AskStepUp,
-    PendingDefer,
-    PendingDeadlineExpired,
-    NotEvaluableStepUp,
-    NotEvaluableExpect,
-    NotEvaluableCoverageGap,
-    BasePermit,
-    DefaultDeny,
-    ObligationUnmet,
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum PolicyRuleIdError {
+    Empty,
+    TooLong,
+    InvalidCharacter,
 }
+// Implements `Display`, `Error`, `Coded` (`GRDR-MODEL-0012`), and `LogSafe` (`LogValue::Code`).
 
 /// Validated non-empty identifier for a rule (`<rule-id>` or `<layer>/<pack>@<ver>/<rule-id>`).
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct PolicyRuleId(String);
+
+impl PolicyRuleId {
+    /// Parses printable non-whitespace ASCII up to `POLICY_RULE_ID_MAX` bytes, rejecting `..` segments.
+    pub fn parse(text: &str) -> Result<Self, PolicyRuleIdError>;
+    pub fn as_str(&self) -> &str;
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ForbidMatch {
@@ -627,6 +670,9 @@ pub struct ForbidMatch {
     pub min_grade: ApprovalGrade,
     pub remedy: Option<Transform>,
     pub obligations: BTreeSet<Obligation>,
+    /// True only for a rule authored in the `user` layer under `InstallProfile::User`
+    /// where D-31's disclosed time lock stands in for `ApprovalGrade::G1`.
+    pub user_local_time_lock: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -653,13 +699,14 @@ pub struct DeriveInput {
     pub errored_policies: BTreeSet<PolicyRuleId>,
     pub satisfied_forbids: Vec<ForbidMatch>,
     pub base_permit_matched: bool,
+    pub permit_obligations: BTreeSet<Obligation>,
+    pub lifted_grant_obligations: BTreeSet<Obligation>,
     pub pending_rules: BTreeSet<PolicyRuleId>,
     pub not_evaluable_rules: Vec<NotEvaluableRule>,
     pub lifted_grants: BTreeSet<PolicyRuleId>,
     pub control_coverage: ControlPointCoverage,
     pub os_control_point_attached: bool,
     pub offered_grades: BTreeSet<ApprovalGrade>,
-    pub user_time_lock_applies: bool,
     pub pending_window: PendingWindow,
     pub modify_budget: ModifyBudget,
     pub caps: ControlPointCaps,
@@ -691,8 +738,6 @@ pub struct Executed {
     pub coverage_gap: bool,
 }
 ```
-
-*(Note: `user_time_lock_applies` is set true by the caller only for user-layer local policy in the User profile when a disclosed time lock substitutes for `G1`, per `docs/design/12` section 3.)*
 
 #### Module layout and signatures in `grdr_core::policy`
 
@@ -755,8 +800,8 @@ pub mod derive {
     pub use grdr_model::{
         ActionClass, ApprovalGrade, ControlPointCaps, ControlPointCoverage, DecisionReason,
         DerivationRow, DeriveInput, Derived, EnforcedMode, ForbidMatch, ModifyBudget,
-        NormaliserOutcome, NotEvaluableRule, Obligation, PendingWindow, PolicyRuleId, Transform,
-        Verdict,
+        NormaliserOutcome, NotEvaluableRule, Obligation, PendingWindow, PolicyRuleId,
+        PolicyRuleIdError, Transform, Verdict,
     };
 
     pub fn derive(input: &DeriveInput) -> Derived;
@@ -768,10 +813,23 @@ pub mod degrade {
     pub fn degrade(derived: &Derived, caps: &ControlPointCaps) -> Executed;
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum SchemaLoadFailure {
+    ParseError,
+    UnexpectedWarning,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum SchemaValidationFailure {
+    RequestRejected,
+    EntityHierarchyRejected,
+    ContextRejected,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum PolicyError {
-    SchemaLoadFailed { detail: String },
+    SchemaLoadFailed { kind: SchemaLoadFailure },
     EnforcingLabelsOverLimit { limit: u64, actual: usize },
     ClassesOverLimit { field: request::inputs::ContextField, limit: u64, actual: usize },
     FactsOverLimit { limit: u64, actual: usize },
@@ -779,19 +837,21 @@ pub enum PolicyError {
     EvidenceOverLimit { limit: u64, actual: usize },
     SessionChainOverLimit { limit: u64, actual: usize },
     MalformedInput { field: &'static str },
-    SchemaRejected { detail: String },
+    SchemaRejected { kind: SchemaValidationFailure },
     EvaluationFailed { errored_rules: BTreeSet<PolicyRuleId> },
     ObligationUnmet { obligation: Obligation },
+    ParserInputOverLimit { limit: u64, actual: usize },
 }
-// Implements `std::fmt::Display`, `std::error::Error`, and `grdr_schema::codes::Coded` (ARCH-017).
+// Implements `std::fmt::Display`, `std::error::Error`, `grdr_schema::codes::Coded` (ARCH-017),
+// and `grdr_model::LogSafe` (`fn log_value(&self) -> LogValue<'_> { LogValue::Code(self.code()) }`).
 ```
 
 #### Typed request inputs (`policy::request::inputs`)
 
 To align directly with `#436` R1-R6 and `#1600` R1-R3 while preventing raw paths, raw commands, or human names from entering Cedar (`P8`):
 
-- `OpaqueId`: validated non-empty identifier (`1..=limits::POLICY_OPAQUE_ID_MAX` bytes, printable non-control characters, NFC-clean). Carries `.as_str()` and converts from `grdr-model` typed ids (`OrgId`, `DeviceId`, `SessionId`, `AgentInstanceId`, `McpServerId`, `McpToolId`, `ModelEndpointId`). Never contains a raw path, URL query, argv, or user identifier. `Debug` renders the kind prefix or redacted length only (`P8`), never leaking raw internal labels beyond structural form.
-- `ClassTag`: validated non-empty class/fact/label tag string (`<= 128` bytes, printable ASCII/token grammar, never agent/tool content).
+- `OpaqueId`: validated non-empty identifier (`1..=limits::POLICY_OPAQUE_ID_MAX` bytes, printable non-control characters, NFC-clean). Carries `.as_str()` and converts from `grdr-model` typed ids (`OrgId`, `DeviceId`, `SessionId`, `AgentInstanceId`, `McpServerId`, `McpToolId`, `ModelEndpointId`). Never contains a raw path, URL query, argv, or user identifier. `Debug` renders a fixed redacted placeholder (`OpaqueId(<len> bytes)`), never leaking runtime identifiers (`ses_*`, `dev_*`, `prc_*`).
+- `ClassTag`: validated non-empty class/fact/label tag string (`1..=limits::POLICY_CLASS_TAG_MAX` bytes, printable ASCII/token grammar, never agent/tool content).
 - `ContextField`: closed `#[non_exhaustive]` enum naming each context or sub-record field path verbatim so `absent`, `pending`, and `#216`'s `ReadSet` share one vocabulary:
   `SessionLabels` (`"context.session.labels"`), `SessionLabelEpoch` (`"context.session.label_epoch"`), `Grants` (`"context.grants"`), `Attribution` (`"context.attribution"`), `Assurance` (`"context.assurance"`), `Facts` (`"context.facts"`), `ControlPoint` (`"context.control_point"`), `CommandClasses` (`"context.command.classes"`), `Recursive` (`"context.recursive"`), `HttpClasses` (`"context.http.classes"`), `Cloud` (`"context.cloud"`), `Tenant` (`"context.tenant"`), `Args` (`"context.args"`), `Mode` (`"context.mode"`), `Child` (`"context.child"`), `ChangeClasses` (`"context.change_classes"`), `SourceLabels` (`"context.source_labels"`), plus entity-side fields where telemetry is absent (`ResourceInWorkspace`, `ResourceIdentityPinned`, `ResourceManifestPinned`).
 - `LabelKind { Enforcing, Advisory }` and `Label { name: ClassTag, kind: LabelKind }`. `build_common` includes only `Enforcing` labels in `context.session.labels`; `Advisory` labels are dropped silently before any Cedar value is built (`D-09`, ADR-0011). For `PrincipalInput::Process`, `context.session.labels` is always empty (`[]`).
@@ -799,7 +859,7 @@ To align directly with `#436` R1-R6 and `#1600` R1-R3 while preventing raw paths
   - `Session { session: OpaqueId, parent: Option<Box<SessionRef>>, instance: OpaqueId, agent: AgentInput, device: DeviceInput, groups: Vec<GroupInput>, depth: u32, contained: bool, containment: ContainmentMode, classes: Vec<ClassTag> }`
   - `Process { process: OpaqueId, device: DeviceInput, actor_kind: ProcessActorKind, agent_capable_host: bool, classes: Vec<ClassTag> }`
   - Supporting `OrgInput { id: OpaqueId }`, `GroupInput { id: OpaqueId, parent_groups: Vec<OpaqueId>, orgs: Vec<OrgInput> }`, `DeviceInput { id: OpaqueId, os: DeviceOs, profile: InstallProfile, groups: Vec<GroupInput> }`, `AgentInput { id: OpaqueId, tier: AgentTier, classes: Vec<ClassTag> }`, and `SessionRef` (parent `Session` descriptor carrying its own `session`, `parent`, `instance`, `depth`, `contained`, `containment`, `classes`).
-- `CommonInput`: `{ labels: Vec<Label>, label_epoch: u64, grants: Vec<PolicyRuleId>, attribution: Option<AttributionInput>, assurance: Option<AssuranceInput>, facts: Option<Vec<ClassTag>>, control_point: ControlPoint, absent: BTreeSet<ContextField>, pending: BTreeSet<ContextField> }`. Note `AssuranceInput` takes closed enums `VisibilityRank` (`0..=3`), `ControlRank` (`0..=3`), `TamperRank` (`0..=2`), and `OnFailure { Open, Closed }` -> `fail_closed: bool`; the AL label is never an input (`#436` R5).
+- `CommonInput`: `{ labels: Vec<Label>, label_epoch: u64, grants: Vec<PolicyRuleId>, attribution: Option<AttributionInput>, assurance: Option<AssuranceInput>, facts: Option<Vec<ClassTag>>, control_point: ControlPoint, absent: BTreeSet<ContextField>, pending: BTreeSet<ContextField> }`. `AssuranceInput` takes closed enums `VisibilityRank` (`0..=3`), `ControlRank` (`0..=3`), `grdr_model::Tamper` (`User => 0`, `Admin => 1`, `Platform => 2`), and `OnFailure { Open, Closed }` -> `fail_closed: bool`; the AL label is never an input (`#436` R5).
 - Per-action inputs: `ExecInput` (with `normaliser: NormaliserOutcome`, `executable: OpaqueId`, `executable_classes: Vec<ClassTag>`, `command_classes: Option<Vec<ClassTag>>`; `Malformed` returns `Err(PolicyError::MalformedInput)` and `Unresolved` writes neutral `[]` and adds `ContextField::CommandClasses` to `absent`), plus typed inputs for the other 14 actions (`FileActionInput` for `file.read`/`file.write`/`file.delete`, `NetConnectInput`, `NetRequestInput`, `LlmRequestInput`, `McpConnectInput`, `McpCallInput`, `CredUseInput`, `AgentSpawnInput`, `ConfigChangeInput`, `ElevateInput`, `UiActInput`, `DataFlowInput`) combined under `ActionInput`.
 
 #### Semantics invariants of `derive` and `degrade`
@@ -807,17 +867,18 @@ To align directly with `#436` R1-R6 and `#1600` R1-R3 while preventing raw paths
 - **`derive(input)`:**
   1. Applies rows 1 to 9 of `docs/design/12` section 4 in strict order; records the winning `DerivationRow` in `Derived::row`.
   2. Row 3 (`ModifyRemedy`) is evaluated only while `modify_budget` is `Fresh` or `Once` (stepping to `Once` or `Twice`); at `ModifyBudget::Twice`, row 3 is skipped so at most two re-evaluations occur (`#1595` R3).
-  3. At Row 4 (`BlockOrUnmetAsk`), an Ask rule whose `min_grade` is unavailable on `input.offered_grades` (unless `input.user_time_lock_applies && rule.min_grade == ApprovalGrade::G1`) resolves to `DENY` with `DecisionReason::AskGradeUnavailable`.
-  4. At Row 7 (`NotEvaluableFallback`), rules lifted by `input.lifted_grants` are ignored; if any non-lifted rule fails closed and `input.control_coverage < ControlPointCoverage::ScopedBoundary`, verdict is `STEP_UP`; if `control_coverage >= ScopedBoundary`, verdict is `ALLOW` with `Obligation::Expect` (when `os_control_point_attached`); otherwise `ALLOW` with `coverage_gap = true` and rule ids in `Derived::not_evaluable`.
-  5. `Obligation::Snapshot` is mandatory: any non-`DENY` decision carrying `Obligation::Snapshot` where `!caps.obligations.contains(&Obligation::Snapshot)` turns into `Verdict::Deny` with `DecisionReason::ObligationUnmet`.
-  6. `Obligation::Expect` is emitted only when `input.os_control_point_attached` is `true` (`#1595` R5).
+  3. At Row 4 (`BlockOrUnmetAsk`), each `ForbidMatch` `r` running at `EnforcedMode::Ask` is checked individually: it is grade-satisfiable only when `input.offered_grades.contains(&r.min_grade) || (r.user_local_time_lock && r.min_grade == ApprovalGrade::G1)`. A rule-local `user_local_time_lock` flag never lowers a co-occurring non-user-local rule (such as an `essentials` or `organisation` `Ask` rule) from `DENY` (`AskGradeUnavailable`) to `STEP_UP`.
+  4. At Row 7 (`NotEvaluableFallback`), rules whose `rule_id` sits in `input.lifted_grants` are excluded. If any non-lifted rule remains, `Derived::not_evaluable` is populated with **all** non-lifted `not_evaluable` rule ids across every Row 7 outcome, and routing branches strictly as follows:
+     - When `input.control_coverage >= ControlPointCoverage::ScopedBoundary && input.os_control_point_attached`: verdict is `Verdict::Allow`, `reason` is `DecisionReason::NotEvaluableExpect`, `Obligation::Expect` is merged into obligations, `coverage_gap = false`, and `determining_rules` holds the non-lifted rule ids.
+     - Otherwise (`!(input.control_coverage >= ControlPointCoverage::ScopedBoundary && input.os_control_point_attached)`, including boundary callers with `os_control_point_attached == false` such as launch containment or forced proxy): if any non-lifted rule has `fail_closed == true`, verdict is `Verdict::StepUp` (`DecisionReason::NotEvaluableStepUp`), `determining_rules` holds the fail-closed non-lifted rule ids, `min_grade` holds the highest `min_grade` among them, and `coverage_gap = false`; else verdict is `Verdict::Allow` (`DecisionReason::NotEvaluableCoverageGap`), `determining_rules` is empty, and `coverage_gap = true`.
+  5. Obligation merging and must-obligation enforcement across Rows 3 to 8: collect candidate obligations from `Obligation::Receipt`, `input.permit_obligations`, `input.lifted_grant_obligations`, plus obligations of determining `satisfied_forbids` (Rows 3, 4, 5) and `Obligation::Expect` (Row 7 boundary branch when `os_control_point_attached == true`; `Obligation::Expect` is never emitted when `os_control_point_attached == false`, `#1595` R5). Whenever the candidate verdict is non-`DENY` and candidate obligations contain `Obligation::Snapshot` while `!caps.obligations.contains(&Obligation::Snapshot)`, promote the verdict to `Verdict::Deny` with `reason = DecisionReason::ObligationUnmet`, preserving the winning `DerivationRow` and `Obligation::Receipt` while dropping action-execution obligations (`Snapshot`, `Expect`).
 - **`degrade(derived, caps)`:**
   1. If `!caps.verbs.contains(&ExecutedVerb::Deny)` (observe-only control point), executes `ExecutedVerb::ObserveOnly` with `would_be = Some(derived.verdict)` and `coverage_gap = true`.
   2. Otherwise, never executes a less restrictive verb than `derived.verdict`:
      - `Deny` -> `ExecutedVerb::Deny`.
      - `Modify` -> `ExecutedVerb::Modify` if `caps.verbs.contains(&ExecutedVerb::Modify)`, else `ExecutedVerb::Deny`.
-     - `StepUp` -> `ExecutedVerb::Hold` if `caps.can_hold && caps.fails_closed` and `caps.hold_deadline_ms` is `Some(deadline_ms)` (with `hold_ms = min(deadline_ms * POLICY_HOLD_DEADLINE_SHARE / 1000, POLICY_FILE_HOLD_CAP)` via checked arithmetic, only when `> 0`), else `ExecutedVerb::DenyWithRetryToken`.
-     - `Defer` -> `ExecutedVerb::Hold` under the same `can_hold`/`fails_closed`/`Some(deadline_ms)` guard, else `ExecutedVerb::DenyWithRetryToken` carrying `derived.retry_after_ms`.
+     - `StepUp` -> `ExecutedVerb::Hold` if `caps.can_hold && caps.fails_closed` and `caps.hold_deadline_ms` is `Some(deadline_ms)` with non-zero clamped hold, else `ExecutedVerb::DenyWithRetryToken`. The hold duration uses widened `u128` arithmetic over `Permille::ONE` so any `deadline_ms` up to `u64::MAX` is infallible (`#1595` AC-2): `scaled = u128::from(deadline_ms) * u128::from(POLICY_HOLD_DEADLINE_SHARE.get()) / u128::from(Permille::ONE.get())`, then clamped to `u128::from(POLICY_FILE_HOLD_CAP.as_millis())` and converted cleanly to `u64`.
+     - `Defer` -> `ExecutedVerb::Hold` under the same `can_hold`/`fails_closed`/`Some(deadline_ms)` guard and widened `u128` clamp, else `ExecutedVerb::DenyWithRetryToken` carrying `derived.retry_after_ms`.
      - `Allow` -> `ExecutedVerb::Allow`.
 
 ### 6. R5: Dependencies (`cedar-policy` and `proptest`)
@@ -836,11 +897,11 @@ To align directly with `#436` R1-R6 and `#1600` R1-R3 while preventing raw paths
    - `cedar-policy` and its internal crates (`cedar-policy-core`, `cedar-policy-formatter`) are `Apache-2.0`.
    - `proptest` is `MIT OR Apache-2.0`.
    - Every direct and transitive licence expected in both graphs (`Apache-2.0`, `MIT`, `BSD-2-Clause`, `BSD-3-Clause`, `ISC`, `Unicode-3.0`) falls within `[class] name = "permissive"` of [`supply-chain/licences.toml`](../supply-chain/licences.toml).
-   - `#432` runs `cargo deny check`, RustSec/OSV advisory checks, and `cargo vet` / `supply-chain/admissions.toml` verification against exact `Cargo.lock` checksums, and records the parser-input size cap mitigation in `limits.toml` for the 2026 Cedar parser memory advisory noted in `docs/design/03` section 11.
+   - `#432` runs `cargo deny check`, RustSec/OSV advisory checks, and `cargo vet` / `supply-chain/admissions.toml` verification against exact `Cargo.lock` checksums. The parser-input size cap mitigation for the 2026 Cedar parser memory advisory noted in `docs/design/03` section 13 (`policy.parser-bytes-max`) lands in `limits.toml` through `#279` (since `#432` modifies only `Cargo.toml`, `Cargo.lock`, `supply-chain/**`, and `crates/grdr-core/Cargo.toml`).
 
 ### 7. R6: `POLICY` error codes and `limits.toml` policy bounds
 
-#### Area and error codes (`schema/codes/areas.toml`, `schema/codes/policy.toml` via `#278`)
+#### Area and error codes (`schema/codes/areas.toml`, `schema/codes/policy.toml`, `schema/codes/model.toml` via `#278`)
 
 ```toml
 [area.POLICY]
@@ -861,8 +922,11 @@ owner = "design/12"
 | `GRDR-POLICY-0009` | `REQUEST_SCHEMA_REJECTED` | `internal` | `internal` | `cedar_policy::Request::new` or `Entities::from_entities` rejected the built request |
 | `GRDR-POLICY-0010` | `POLICY_EVALUATION_FAILED` | `policy` | `permission_denied` | An enforced Cedar policy errored during evaluation |
 | `GRDR-POLICY-0011` | `OBLIGATION_UNMET` | `policy` | `failed_precondition` | Control point lacks a must-obligation such as `snapshot` |
+| `GRDR-POLICY-0012` | `PARSER_INPUT_OVER_LIMIT` | `input` | `invalid_argument` | Cedar schema or policy source bytes exceed `POLICY_PARSER_BYTES_MAX` |
 
-Each entry conforms to RFC 0007 section 4 (`status = "active"`, language tokens `code.policy_<nnnn>.message` and `code.policy_<nnnn>.fix`, registered via `#278`'s registry and `#1853` token rules per RFC 0010).
+In addition, amending RFC 0009 registers `GRDR-MODEL-0012` (`RULE_ID_FORM`, `class = "input"`, `connect = "invalid_argument"`, bound by `PolicyRuleIdError`) in `schema/codes/model.toml` under area `MODEL`.
+
+Each entry conforms to RFC 0007 section 4 (`status = "active"`, language tokens `code.<area>_<nnnn>.message` and `code.<area>_<nnnn>.fix`, registered via `#278`'s registry and `#1853` token rules per RFC 0010).
 
 #### Policy bounds in `limits.toml` (via `#279` / RFC 0007 section 6)
 
@@ -875,6 +939,9 @@ Each entry conforms to RFC 0007 section 4 (`status = "active"`, language tokens 
 | `policy.evidence-set-max` | `count = 32` | `1..=64` | `fixed` / `none` | `design/04` | `POLICY_EVIDENCE_SET_MAX` |
 | `policy.session-chain-max` | `count = 16` | `1..=64` | `fixed` / `none` | `design/12` | `POLICY_SESSION_CHAIN_MAX` |
 | `policy.opaque-id-max` | `bytes = 256` | `16..=1024` | `fixed` / `none` | `design/04` | `POLICY_OPAQUE_ID_MAX` |
+| `policy.rule-id-max` | `bytes = 256` | `32..=512` | `fixed` / `none` | `design/12` | `POLICY_RULE_ID_MAX` |
+| `policy.class-tag-max` | `bytes = 128` | `32..=256` | `fixed` / `none` | `design/12` | `POLICY_CLASS_TAG_MAX` |
+| `policy.parser-bytes-max` | `bytes = 262144` | `4096..=1048576` | `fixed` / `none` | `design/03` | `POLICY_PARSER_BYTES_MAX` |
 | `policy.hold-deadline-share` | `permille = 800` | `1..=800` | `fixed` / `none` | `design/12` | `POLICY_HOLD_DEADLINE_SHARE` |
 | `policy.file-hold-cap` | `ms = 30000` | `1..=30000` | `fixed` / `none` | `design/12` | `POLICY_FILE_HOLD_CAP` |
 
@@ -882,10 +949,10 @@ All names follow RFC 0007 section 6 naming rules (no segment equals a reserved k
 
 ### 8. Mechanisms (`P14`), Data classes (`P8`), Assurance (`P1`), Failure modes
 
-- **Mechanism (`P14`):** All behaviour rules, class lists, labels, mode floors, bounds, and error messages live in packs, `schema/cedar/v1alpha1.cedarschema`, `schema/codes/policy.toml`, and `limits.toml`. Rust code in `grdr_core::policy` implements only the schema loader, deterministic request construction, derivation table, and degradation function.
-- **Data classes (`P8`):** `v1alpha1.cedarschema`, classes, facts, labels, grades, ranks, rule ids, and `ContextField` paths are `structural`. Entity ids are opaque `identifier` values (`ident_*`); `Request` builders never accept raw paths, argv strings, request bodies, or human identifiers (`D-51`).
-- **Assurance effect (`P1`):** `derive` and `degrade` map decisions to enforced or observe-only verbs and mark `coverage_gap = true` when a control point cannot deny or a non-lifted fail-closed/fallback rule is not evaluable (`control: none` on observe-only control points). Schema loading and request construction carry existing assurance ranks without modifying them.
-- **Failure modes (`P9`, `D-15`):** Schema parse failure prevents bundle activation (`GRDR-POLICY-0001`). Any input bound overflow rejects the build with its `GRDR-POLICY-*` code and never truncates (`GRDR-POLICY-0002` to `0007`). `NormaliserOutcome::Malformed` resolves upstream (`GRDR-POLICY-0008`) and in `derive` Row 1 to `DENY`. Evaluation errors resolve in `derive` Row 2 to fail-closed `DENY` (`policy-error`). Missing must-obligation `Snapshot` resolves to `DENY` (`obligation-unmet`). Over `ModifyBudget::Twice`, Row 3 is skipped so no transform loop can starve a request.
+- **Mechanism (`P14`):** All behaviour rules, class lists, labels, mode floors, bounds, and error messages live in packs, `schema/cedar/v1alpha1.cedarschema`, `schema/codes/policy.toml`, `schema/codes/model.toml`, and `limits.toml`. Rust code in `grdr_core::policy` implements only the schema loader, deterministic request construction, derivation table, and degradation function.
+- **Data classes (`P8`):** `v1alpha1.cedarschema`, classes, facts, labels, grades, ranks, `PolicyRuleId`, `PolicyError` (`LogValue::Code`), and `ContextField` paths are `structural`. Entity ids are opaque `identifier` values; `Request` builders never accept raw paths, argv strings, request bodies, or human identifiers (`D-51`), and `OpaqueId`/`PolicyError` never expose inner identifiers in `Debug` or `LogSafe`.
+- **Assurance effect (`P1`):** `derive` and `degrade` map decisions to enforced or observe-only verbs and mark `coverage_gap = true` when a control point cannot deny or a non-lifted non-fail-closed rule is not evaluable outside a boundary OS control point (`control: none` on observe-only control points). Schema loading and request construction carry existing assurance ranks without modifying them.
+- **Failure modes (`P9`, `D-15`):** Schema parse failure or warning prevents bundle activation (`GRDR-POLICY-0001`). Parser input exceeding `POLICY_PARSER_BYTES_MAX` is rejected (`GRDR-POLICY-0012`). Any input bound overflow rejects the build with its `GRDR-POLICY-*` code and never truncates (`GRDR-POLICY-0002` to `0007`). `NormaliserOutcome::Malformed` resolves upstream (`GRDR-POLICY-0008`) and in `derive` Row 1 to `DENY`. Evaluation errors resolve in `derive` Row 2 to fail-closed `DENY` (`policy-error`). Missing must-obligation `Snapshot` across Rows 3 to 8 resolves to `DENY` (`obligation-unmet`). Over `ModifyBudget::Twice`, Row 3 is skipped so no transform loop can starve a request.
 
 ## Surfaces changed
 
@@ -894,12 +961,12 @@ This RFC authors design specification only (`rfcs/0013-cedar-schema-grdr-policy-
 | Surface | Proposed change | Implementing item(s) |
 |---|---|---|
 | `schema/cedar/v1alpha1.cedarschema` | Create canonical `Grdr` v1alpha1 schema verbatim | `#435` |
-| `grdr-schema` (layer 0) | Add `cedar::{V1ALPHA1, SCHEMA_VERSION}`, area `POLICY`, 11 `GRDR-POLICY-*` codes, 9 `policy.*` limits | `#435`, `#278`, `#279` |
-| `grdr-model` (layer 1) | Host shared policy contract enums/structs (`ControlPointCaps`, `DeriveInput`, `Derived`, `Executed`, etc.) | `#1595` (re-plan / `#739` alignment) |
-| `grdr-core` (layer 1) | Add `policy::{schema, request, derive, degrade}`, `PolicyError`, re-export shared `grdr-model` types; depend on `grdr-schema` and `cedar-policy` | `#432`, `#435`, `#436`, `#1600`, `#1602`, `#1595` |
+| `grdr-schema` (layer 0, amending RFC 0007) | Add `cedar::{V1ALPHA1, SCHEMA_VERSION}`, update `tests/construction.rs` `layout` incrementally for `cedar.rs` + `schema/cedar/v1alpha1.cedarschema`, register area `POLICY` (`GRDR-POLICY-0001`..`0012`), `GRDR-MODEL-0012`, and 12 `policy.*` limits | `#435`, `#278`, `#279` |
+| `grdr-model` (layer 1, amending RFC 0009) | Host shared policy contract enums (`wire_enum!`) and structs (`PolicyRuleId`, `PolicyRuleIdError`, `ForbidMatch`, `ControlPointCaps`, `DeriveInput`, `Derived`, `Executed`, etc.) at crate root; reuse `Tamper` | `#1595` (re-plan / `#739` alignment) |
+| `grdr-core` (layer 1) | Add `policy::{schema, request, derive, degrade}`, `PolicyError` (`LogSafe` via `Code`), re-export shared `grdr-model` types; depend on `grdr-schema` and `cedar-policy` | `#432`, `#435`, `#436`, `#1600`, `#1602`, `#1595` |
 | `grdr-policy-ref` (`tool`) | Add `derive` and `degrade` reference functions over `grdr-model` types only (`proptest` dev-dep) | `#434`, `#1597` |
 | `Cargo.toml`, `Cargo.lock`, `supply-chain/` | Pin `cedar-policy = "=4.14.1"` (`default-features = false`) and `proptest` | `#432` |
-| `surfaces.toml`, `architecture.toml`, `security/trust-core.paths` | Record `grdr-core` `exposes = ["cedar-policy"]` under `experimental`; register `grdr-policy-ref` and `grdr-core` -> `grdr-schema` edge notes; mark policy paths trust core | `#434`, lead-agent-kit protected-change items |
+| `surfaces.toml`, `architecture.toml`, `security/trust-core.paths` | Keep `grdr-core` `class = "experimental"` (`[[crate]]` schema `(name, class, rfc)` unchanged) while tracking `ARCH-007` `cedar-policy` exposure in `architecture.toml`/RFC record; register `grdr-policy-ref`, `grdr-core` -> `grdr-schema`, and `crates/grdr-schema/src/cedar.rs` trust-core path | `#434`, lead-agent-kit protected-change items |
 | `docs/design/03`, `docs/design/12` | Update schema file path (`schema/cedar/v1alpha1.cedarschema`), `absent` phrasing for `context.command.classes`, and `ARCH-013` note (`grdr-schema` + `cedar-policy` in `policy`) | Design follow-up after acceptance |
 
 ## Alternatives
@@ -908,8 +975,8 @@ This RFC authors design specification only (`rfcs/0013-cedar-schema-grdr-policy-
    - *Rejected:* Breaks strict validation of policy 5 and ten sibling worked rules in `docs/design/12` section 5 unless every worked rule is rewritten with repetitive `has` guards, and creates drift between policy read sets and Cedar evaluation semantics.
 2. **Expose `absent` and `pending` as Cedar context attributes (`R3`).**
    - *Rejected:* Allows user/pack rules to branch directly on `absent` or `pending`, bypassing rows 6 and 7 (`DEFER`, `STEP_UP`, `expect`, coverage gap) in `derive`. Keeping them engine-side enforces `P14`.
-3. **Wrap `cedar_policy::{Schema, Request, Entities}` in opaque `grdr-core` newtypes now instead of listing `cedar-policy` in `surfaces.toml` (`R4`).**
-   - *Rejected for slice 0:* `#435` R3 explicitly specifies `load() -> Result<cedar_policy::Schema, ...>`, and `#436`/`#1600` validate directly with `cedar-policy` types. Under `ARCH-007`, listing `cedar-policy` in `surfaces.toml` while `grdr-core` is `experimental` is lawful and avoids replanning `#435`, `#436`, and `#1600`; wrapping stays a precondition for `beta`/`stable` graduation (`D-60`).
+3. **Wrap `cedar_policy::{Schema, Request, Entities}` in opaque `grdr-core` newtypes now instead of tracking `ARCH-007` exposure while `experimental` (`R4`).**
+   - *Rejected for slice 0:* `#435` R3 explicitly specifies `load() -> Result<cedar_policy::Schema, ...>`, and `#436`/`#1600` validate directly with `cedar-policy` types. Keeping `grdr-core` at `class = "experimental"` in `surfaces.toml` with `ARCH-007` tracking avoids replanning `#435`, `#436`, and `#1600`; wrapping stays mandatory before `beta`/`stable` graduation (`D-60`).
 4. **Have `grdr-policy-ref` depend directly on `grdr-core` for `Derived`/`DeriveInput`/`ControlPointCaps` (`R4`).**
    - *Rejected:* Directly violates `#434` R2/AC-2 (`cargo tree -p grdr-policy-ref -e normal` must show neither `grdr-core` nor `cedar-policy`). Placing shared value types in `grdr-model` satisfies `#434`, `#1595`, and `#1597` simultaneously with zero shared evaluator code (`D-63`).
 5. **Enable `cedar-policy` default features (`datetime`, `decimal`, `ipaddr`) (`R5`).**
@@ -917,7 +984,8 @@ This RFC authors design specification only (`rfcs/0013-cedar-schema-grdr-policy-
 
 ## Drawbacks
 
-- **Two-crate coordination for `derive`/`degrade` types:** Putting `ControlPointCaps`, `DeriveInput`, `Derived`, and `Executed` in `grdr-model` instead of only inside `crates/grdr-core/src/policy/` requires a small write-set adjustment across `#1595` and `#1597` (and alignment with `#739`).
+- **Two-crate coordination for `derive`/`degrade` types:** Putting `ControlPointCaps`, `DeriveInput`, `Derived`, and `Executed` in `grdr-model` instead of only inside `crates/grdr-core/src/policy/` amends RFC 0009 and requires a write-set adjustment across `#1595` and `#1597` (and alignment with `#739`).
+- **Amending RFC 0007's `layout` gate for `cedar.rs`:** Expanding `grdr-schema`'s module tree and permitting `include_str!` solely in `crates/grdr-schema/src/cedar.rs` relaxes RFC 0007's seven-file list; keeping `layout` incremental over `{codes, limits, health, cedar}` prevents merge conflicts with RFC 0016 (`#668`).
 - **Schema bump required when `schedule` gains attributes:** Because `ScheduleContext` is `{}` (required), adding future time-of-day attributes requires a coordinated schema version bump (`v1alpha2`) rather than populating optional fields in-place. This is already how `docs/design/12` section 10 handles schema evolution (`schema_version` compatibility resolver).
 - **Repeated common context block in `.cedarschema`:** Cedar's schema grammar lacks record spread syntax, so 11 of the 15 actions list the 7 common context keys explicitly alongside their per-action fields (using shared `SessionContext`, `AttributionContext`, `AssuranceContext`, `ScheduleContext` common types to prevent field drift). `#435`'s shape test and `#392`'s drift check enforce uniformity mechanically.
 
@@ -925,7 +993,7 @@ This RFC authors design specification only (`rfcs/0013-cedar-schema-grdr-policy-
 
 1. **Exact alignment with `#739` (`RFC-1`):** `#739` will settle additional policy engine public types (`RuleMeta`, `CanonicalAction`, grants and retry metadata) in `grdr-model` and `grdr-core`. If `#739` changes naming conventions for `ActionClass`, `ApprovalGrade`, or `PolicyRuleId`, it may supersede those type names explicitly in `grdr-model` while keeping `v1alpha1.cedarschema` and `grdr_core::policy` semantics intact.
 2. **Exact `proptest` patch version (`1.12.x`) and `cargo vet` audit entries:** `#432` resolves and freezes the exact `Cargo.lock` versions, checksums, and `supply-chain/` exemptions/audits when admitting `cedar-policy = "=4.14.1"` and `proptest`.
-3. **Sub-issue re-plan scope upon acceptance:** Lead-core updates `#1595` (to place or depend on the shared `grdr-model` types), `#1597` (R1/AC-3 to import shared contract types from `grdr-model` rather than `grdr-core`), `#278` (seed/follow-up `POLICY` area and codes), `#279` (add `policy.*` bounds), and opens the `surfaces.toml` / `architecture.toml` protected-change update for `lead-agent-kit`.
+3. **Sub-issue re-plan scope upon acceptance:** Lead-core updates `#1595` (to place or depend on the shared `grdr-model` types), `#1597` (R1/AC-3 to import shared contract types from `grdr-model` rather than `grdr-core`), `#278` (`POLICY` area codes `0001`..`0012` plus `GRDR-MODEL-0012`), `#279` (add the twelve `policy.*` bounds including `policy.parser-bytes-max`), `#435` (`layout` test update for `cedar.rs` + `include_str!` allow-list), and opens the `architecture.toml` / `security/trust-core.paths` protected-change updates for `lead-agent-kit`.
 
 ## Review
 
