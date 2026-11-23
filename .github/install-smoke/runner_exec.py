@@ -11,6 +11,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 from typing import Mapping
 
@@ -38,6 +39,9 @@ CREATE_UNICODE_ENVIRONMENT = 0x00000400
 HANDLE_FLAG_INHERIT = 0x00000001
 INFINITE = 0xFFFFFFFF
 MEDIUM_INTEGRITY_SID = "S-1-16-8192"
+MEDIUM_INTEGRITY_RID = 0x2000
+BUILTIN_ADMINS_SID = "S-1-5-32-544"
+SECURITY_IDENTIFICATION = 1
 PIPE_CHUNK_BYTES = 4096
 PIPE_JOIN_SECONDS = 5
 WAIT_TIMEOUT_EXIT_CODE = 124
@@ -121,6 +125,12 @@ if os.name == "nt":
     _ADVAPI32.SetTokenInformation.restype = wintypes.BOOL
     _ADVAPI32.ConvertStringSidToSidW.argtypes = [wintypes.LPCWSTR, ctypes.POINTER(ctypes.c_void_p)]
     _ADVAPI32.ConvertStringSidToSidW.restype = wintypes.BOOL
+    _ADVAPI32.ConvertSidToStringSidW.argtypes = [ctypes.c_void_p, ctypes.POINTER(wintypes.LPWSTR)]
+    _ADVAPI32.ConvertSidToStringSidW.restype = wintypes.BOOL
+    _ADVAPI32.DuplicateToken.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.POINTER(wintypes.HANDLE)]
+    _ADVAPI32.DuplicateToken.restype = wintypes.BOOL
+    _ADVAPI32.CheckTokenMembership.argtypes = [wintypes.HANDLE, ctypes.c_void_p, ctypes.POINTER(wintypes.BOOL)]
+    _ADVAPI32.CheckTokenMembership.restype = wintypes.BOOL
     _ADVAPI32.SaferCreateLevel.argtypes = [
         wintypes.DWORD, wintypes.DWORD, wintypes.DWORD, ctypes.POINTER(ctypes.c_void_p), ctypes.c_void_p
     ]
@@ -161,12 +171,72 @@ def is_windows_elevated() -> bool:
 def _set_medium_integrity(token: wintypes.HANDLE) -> None:
     sid = ctypes.c_void_p()
     if not _ADVAPI32.ConvertStringSidToSidW(MEDIUM_INTEGRITY_SID, ctypes.byref(sid)):
-        return
+        raise OracleError(ERR_ELEVATION, f"ConvertStringSidToSidW failed ({ctypes.get_last_error()})")
     try:
         label = _TokenMandatoryLabel(_SidAndAttr(sid, SE_GROUP_INTEGRITY))
-        _ADVAPI32.SetTokenInformation(token, TOKEN_INTEGRITY_LEVEL, ctypes.byref(label), ctypes.sizeof(label))
+        if not _ADVAPI32.SetTokenInformation(
+            token, TOKEN_INTEGRITY_LEVEL, ctypes.byref(label), ctypes.sizeof(label)
+        ):
+            raise OracleError(ERR_ELEVATION, f"SetTokenInformation failed ({ctypes.get_last_error()})")
     finally:
         _KERNEL32.LocalFree(sid)
+
+
+def _query_token_integrity_rid(token: wintypes.HANDLE) -> int:
+    needed = wintypes.DWORD(0)
+    _ADVAPI32.GetTokenInformation(token, TOKEN_INTEGRITY_LEVEL, None, 0, ctypes.byref(needed))
+    if needed.value < ctypes.sizeof(_TokenMandatoryLabel):
+        raise OracleError(ERR_ELEVATION, f"GetTokenInformation(TokenIntegrityLevel) failed ({ctypes.get_last_error()})")
+    buf = ctypes.create_string_buffer(needed.value)
+    if not _ADVAPI32.GetTokenInformation(token, TOKEN_INTEGRITY_LEVEL, buf, needed.value, ctypes.byref(needed)):
+        raise OracleError(ERR_ELEVATION, f"GetTokenInformation(TokenIntegrityLevel) failed ({ctypes.get_last_error()})")
+    tml = ctypes.cast(buf, ctypes.POINTER(_TokenMandatoryLabel)).contents
+    sid_str = wintypes.LPWSTR()
+    if not _ADVAPI32.ConvertSidToStringSidW(tml.Label.Sid, ctypes.byref(sid_str)):
+        raise OracleError(ERR_ELEVATION, f"ConvertSidToStringSidW failed ({ctypes.get_last_error()})")
+    try:
+        text = sid_str.value or ""
+    finally:
+        _KERNEL32.LocalFree(sid_str)
+    if not text.startswith("S-1-16-"):
+        raise OracleError(ERR_ELEVATION, f"unexpected integrity SID: {text}")
+    try:
+        return int(text.rsplit("-", 1)[1])
+    except ValueError:
+        raise OracleError(ERR_ELEVATION, f"malformed integrity SID: {text}") from None
+
+
+def _verify_unelevated_windows_token(token: wintypes.HANDLE) -> None:
+    rid = _query_token_integrity_rid(token)
+    if rid > MEDIUM_INTEGRITY_RID:
+        raise OracleError(ERR_ELEVATION, f"de-elevated token integrity RID too high: {rid}")
+
+    elev = wintypes.DWORD(1)
+    size = wintypes.DWORD(0)
+    if not _ADVAPI32.GetTokenInformation(
+        token, TOKEN_ELEVATION, ctypes.byref(elev), ctypes.sizeof(elev), ctypes.byref(size)
+    ):
+        raise OracleError(ERR_ELEVATION, f"GetTokenInformation(TokenElevation) failed ({ctypes.get_last_error()})")
+    if elev.value != 0:
+        raise OracleError(ERR_ELEVATION, "de-elevated token remained elevated")
+
+    imp_token = wintypes.HANDLE()
+    if not _ADVAPI32.DuplicateToken(token, SECURITY_IDENTIFICATION, ctypes.byref(imp_token)):
+        raise OracleError(ERR_ELEVATION, f"DuplicateToken failed ({ctypes.get_last_error()})")
+    try:
+        admin_sid = ctypes.c_void_p()
+        if not _ADVAPI32.ConvertStringSidToSidW(BUILTIN_ADMINS_SID, ctypes.byref(admin_sid)):
+            raise OracleError(ERR_ELEVATION, f"ConvertStringSidToSidW(admins) failed ({ctypes.get_last_error()})")
+        try:
+            is_admin = wintypes.BOOL(1)
+            if not _ADVAPI32.CheckTokenMembership(imp_token, admin_sid, ctypes.byref(is_admin)):
+                raise OracleError(ERR_ELEVATION, f"CheckTokenMembership failed ({ctypes.get_last_error()})")
+            if is_admin.value != 0:
+                raise OracleError(ERR_ELEVATION, "de-elevated token retained administrator membership")
+        finally:
+            _KERNEL32.LocalFree(admin_sid)
+    finally:
+        _KERNEL32.CloseHandle(imp_token)
 
 
 def _create_unelevated_windows_token() -> wintypes.HANDLE:
@@ -186,7 +256,12 @@ def _create_unelevated_windows_token() -> wintypes.HANDLE:
                 raise OracleError(ERR_ELEVATION, "SaferComputeTokenFromLevel failed")
         finally:
             _ADVAPI32.SaferCloseLevel(level)
-        _set_medium_integrity(restricted)
+        try:
+            _set_medium_integrity(restricted)
+            _verify_unelevated_windows_token(restricted)
+        except Exception:
+            _KERNEL32.CloseHandle(restricted)
+            raise
         return restricted
     finally:
         _KERNEL32.CloseHandle(proc_token)
@@ -229,7 +304,7 @@ def _run_with_windows_token(
     if not ok:
         _KERNEL32.CloseHandle(out_r)
         _KERNEL32.CloseHandle(err_r)
-        raise OracleError(ERR_ELEVATION, f"CreateProcessAsUserW failed ({ctypes.GetLastError()})")
+        raise OracleError(ERR_ELEVATION, f"CreateProcessAsUserW failed ({ctypes.get_last_error()})")
 
     chunks_out: list[bytes] = []
     chunks_err: list[bytes] = []
@@ -317,6 +392,46 @@ def run_argv(
     return CommandResult(proc.returncode, proc.stdout, proc.stderr)
 
 
+def _run_posix_elevated(
+    argv: list[str],
+    env: Mapping[str, str],
+    cwd: pathlib.Path,
+    timeout_seconds: int,
+) -> CommandResult:
+    geteuid = getattr(os, "geteuid", None)
+    if geteuid is not None and geteuid() == 0:
+        return run_argv(argv, env, cwd, timeout_seconds)
+    if shutil.which("sudo") is None:
+        raise OracleError(ERR_ELEVATION, "sudo is missing for elevated execution")
+    sudo_env = [
+        f"{k}={env[k]}"
+        for k in ("HOME", "PATH", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME")
+        if k in env
+    ]
+    with tempfile.TemporaryDirectory() as tmp:
+        marker = pathlib.Path(tmp) / "uid"
+        wrapped = [
+            "sudo",
+            "-n",
+            "env",
+            *sudo_env,
+            "/bin/sh",
+            "-c",
+            'printf "%s" "$(id -u)" > "$1" && chmod 0644 "$1" && shift && exec "$@"',
+            "grdr-sudo-check",
+            str(marker),
+            *argv,
+        ]
+        res = run_argv(wrapped, env, cwd, timeout_seconds)
+        try:
+            uid_text = marker.read_text(encoding="utf-8").strip()
+        except OSError:
+            uid_text = ""
+    if uid_text != "0":
+        raise OracleError(ERR_ELEVATION, f"sudo -n failed before running command as uid 0 (rc={res.returncode})")
+    return res
+
+
 def run_step_command(
     cmd: str,
     os_name: OsName,
@@ -333,13 +448,6 @@ def run_step_command(
             if not is_windows_elevated():
                 raise OracleError(ERR_ELEVATION, "Windows runner token is not elevated")
             return run_argv(argv, env, cwd, timeout_seconds, deelevate_windows=False)
-        if os.geteuid() != 0:
-            sudo_env = [
-                f"{k}={env[k]}"
-                for k in ("HOME", "PATH", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME")
-                if k in env
-            ]
-            argv = ["sudo", "-n", "env", *sudo_env, *argv]
-        return run_argv(argv, env, cwd, timeout_seconds)
+        return _run_posix_elevated(argv, env, cwd, timeout_seconds)
     deelevate = os_name == OsName.WINDOWS and profile == Profile.USER
     return run_argv(argv, env, cwd, timeout_seconds, deelevate_windows=deelevate)

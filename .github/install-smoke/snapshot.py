@@ -184,12 +184,14 @@ def sha256_bytes(data: bytes) -> str:
 
 
 def _sha256_file(path: str, chunk_bytes: int) -> str:
-    digest = hashlib.sha256()
     try:
         with open(path, "rb") as handle:
+            if hasattr(hashlib, "file_digest"):
+                return hashlib.file_digest(handle, "sha256").hexdigest()
+            digest = hashlib.sha256()
             while chunk := handle.read(chunk_bytes):
                 digest.update(chunk)
-        return digest.hexdigest()
+            return digest.hexdigest()
     except OSError:
         return "<unreadable>"
 
@@ -253,6 +255,26 @@ def _is_ignored(norm_path: str, ignored: list[str], os_name: OsName) -> bool:
     return False
 
 
+def _can_walk_root(
+    root_path: str,
+    root_entry: SnapshotEntry,
+    ignored: list[str],
+    os_name: OsName,
+) -> bool:
+    if root_entry.kind == EntryKind.DIR:
+        return True
+    if root_entry.kind != EntryKind.SYMLINK:
+        return False
+    try:
+        target_stat = os.stat(root_path)
+    except OSError:
+        return False
+    if not stat.S_ISDIR(target_stat.st_mode):
+        return False
+    resolved = normalize_for_match(os.path.realpath(root_path), os_name)
+    return not _is_ignored(resolved, ignored, os_name)
+
+
 def _scan_fs_root(
     root_path: str,
     ignored: list[str],
@@ -273,7 +295,7 @@ def _scan_fs_root(
         return
     root_entry = _entry_metadata(root_path, root_stat, os_name, chunk_bytes)
     records[root_path] = root_entry
-    if root_entry.kind != EntryKind.DIR:
+    if not _can_walk_root(root_path, root_entry, ignored, os_name):
         return
 
     stack = [root_path]

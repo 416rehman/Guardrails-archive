@@ -7,6 +7,7 @@ import json
 import os
 import pathlib
 import shlex
+import stat
 import sys
 from typing import Any, Mapping
 
@@ -16,6 +17,7 @@ if _HERE not in sys.path:
 
 from snapshot import (
     ERR_SETTINGS,
+    WINDOWS_REPARSE_ATTR,
     DiffEntry,
     DiffKind,
     EntryKind,
@@ -44,6 +46,19 @@ class JsonNode:
     value: Any
     members: tuple[tuple[int, int, str, "JsonNode"], ...] = ()
     items: tuple["JsonNode", ...] = ()
+
+
+def _reject_json_constant(token: str) -> Any:
+    raise ValueError(f"non-RFC 8259 JSON constant: {token}")
+
+
+def _strict_object_pairs_hook(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    obj: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in obj:
+            raise ValueError(f"duplicate JSON key: {key}")
+        obj[key] = value
+    return obj
 
 
 def _skip_ws(text: str, pos: int) -> int:
@@ -82,6 +97,8 @@ def _parse_json_object(text: str, pos: int, decoder: json.JSONDecoder) -> tuple[
         if pos >= len(text) or text[pos] != ":":
             raise ValueError("expected ':'")
         val_node, pos = _parse_json_node(text, pos + 1, decoder)
+        if key in result:
+            raise ValueError(f"duplicate JSON key: {key}")
         members.append((key_start, key_end, key, val_node))
         result[key] = val_node.value
         pos = _skip_ws(text, pos)
@@ -116,7 +133,10 @@ def _parse_json_array(text: str, pos: int, decoder: json.JSONDecoder) -> tuple[J
 
 
 def parse_json_spans(text: str) -> JsonNode:
-    decoder = json.JSONDecoder()
+    decoder = json.JSONDecoder(
+        object_pairs_hook=_strict_object_pairs_hook,
+        parse_constant=_reject_json_constant,
+    )
     node, end = _parse_json_node(text, 0, decoder)
     if _skip_ws(text, end) != len(text):
         raise ValueError("trailing data after JSON document")
@@ -312,7 +332,11 @@ def verify_user_claude_settings(
 
 def verify_dropin_claude_settings(dropin_bytes: bytes, patterns: list[str], os_name: OsName) -> tuple[int, list[str]]:
     try:
-        doc = json.loads(dropin_bytes.decode("utf-8"))
+        doc = json.loads(
+            dropin_bytes.decode("utf-8"),
+            object_pairs_hook=_strict_object_pairs_hook,
+            parse_constant=_reject_json_constant,
+        )
     except (UnicodeDecodeError, ValueError) as error:
         return 0, [f"invalid Claude drop-in JSON: {type(error).__name__}"]
     if not isinstance(doc, dict) or not isinstance(doc.get("hooks"), dict):
@@ -330,14 +354,92 @@ def verify_dropin_claude_settings(dropin_bytes: bytes, patterns: list[str], os_n
     return total_ours, []
 
 
-def _is_allowed_dropin_path(diff: DiffEntry, norm_p: str, norm_dropin_dir: str, os_name: OsName) -> bool:
-    if diff.kind == DiffKind.REMOVED:
+def _lstat_non_reparse(path: pathlib.Path, os_name: OsName) -> os.stat_result | None:
+    try:
+        st = os.lstat(path)
+    except OSError:
+        return None
+    if os_name == OsName.WINDOWS and (getattr(st, "st_file_attributes", 0) & WINDOWS_REPARSE_ATTR):
+        return None
+    return st
+
+
+def _is_regular_file(path: pathlib.Path, os_name: OsName) -> bool:
+    st = _lstat_non_reparse(path, os_name)
+    return st is not None and stat.S_ISREG(st.st_mode)
+
+
+def _is_real_dir(path: pathlib.Path, os_name: OsName) -> bool:
+    st = _lstat_non_reparse(path, os_name)
+    return st is not None and stat.S_ISDIR(st.st_mode)
+
+
+def _is_allowed_dropin_file(
+    diff: DiffEntry,
+    norm_p: str,
+    dropin_prefix: str,
+    sep: str,
+) -> bool:
+    if diff.kind == DiffKind.REMOVED or diff.after is None or diff.after.kind != EntryKind.FILE:
         return False
-    sep = "\\" if os_name == OsName.WINDOWS else "/"
-    parent_dir = normalize_for_match(os.path.dirname(norm_dropin_dir), os_name)
-    if norm_p in (parent_dir, norm_dropin_dir) and diff.after is not None and diff.after.kind == EntryKind.DIR:
-        return True
-    return norm_p.startswith(norm_dropin_dir.rstrip(sep) + sep) and norm_p.endswith(".json")
+    if not norm_p.startswith(dropin_prefix):
+        return False
+    rel = norm_p[len(dropin_prefix):]
+    return sep not in rel and norm_p.endswith(".json")
+
+
+def _validate_user_settings_file(
+    user_settings: str,
+    user_modified: bool,
+    seeded_bytes: bytes,
+    patterns: list[str],
+    os_name: OsName,
+) -> tuple[int, list[str]]:
+    user_path = pathlib.Path(user_settings)
+    if not _is_regular_file(user_path, os_name):
+        return 0, [f"{user_settings} is not a regular file"]
+    try:
+        actual_bytes = user_path.read_bytes()
+    except OSError as err:
+        return 0, [f"cannot read {user_settings}: {type(err).__name__}"]
+    if user_modified:
+        count, errs = verify_user_claude_settings(seeded_bytes, actual_bytes, patterns, os_name)
+        if errs:
+            return 0, [
+                f"{user_settings} (seeded sha256={sha256_bytes(seeded_bytes)}, "
+                f"actual sha256={sha256_bytes(actual_bytes)}): {'; '.join(errs)}"
+            ]
+        return count, []
+    if actual_bytes != seeded_bytes:
+        return 0, [
+            f"{user_settings} changed unexpectedly "
+            f"(seeded sha256={sha256_bytes(seeded_bytes)}, actual sha256={sha256_bytes(actual_bytes)})"
+        ]
+    return 0, []
+
+
+def _validate_dropin_files(
+    dropin_dir: str,
+    dropin_files: list[str],
+    patterns: list[str],
+    os_name: OsName,
+) -> tuple[int, list[str]]:
+    if not _is_real_dir(pathlib.Path(dropin_dir), os_name):
+        return 0, [f"{dropin_dir} is not a directory"]
+    total_entries = 0
+    for dropin_path in dropin_files:
+        path_obj = pathlib.Path(dropin_path)
+        if not _is_regular_file(path_obj, os_name):
+            return 0, [f"{dropin_path} is not a regular file"]
+        try:
+            raw = path_obj.read_bytes()
+        except OSError as err:
+            return 0, [f"cannot read {dropin_path}: {type(err).__name__}"]
+        count, errs = verify_dropin_claude_settings(raw, patterns, os_name)
+        if errs:
+            return 0, [f"{dropin_path} (sha256={sha256_bytes(raw)}): {'; '.join(errs)}"]
+        total_entries += count
+    return total_entries, []
 
 
 def verify_choose_changes(
@@ -355,10 +457,14 @@ def verify_choose_changes(
     norm_user = normalize_for_match(user_settings, os_name)
     dropin_dir = expand_path(config["os"][os_name.value]["claude_dropin_dir"], os_name, source)
     norm_dropin_dir = normalize_for_match(dropin_dir, os_name)
+    sep = "\\" if os_name == OsName.WINDOWS else "/"
+    dropin_prefix = norm_dropin_dir.rstrip(sep) + sep
+    parent_dir = normalize_for_match(os.path.dirname(norm_dropin_dir), os_name)
 
     diffs = diff_snapshots(before, after)
     errors: list[str] = []
     dropin_files: list[str] = []
+    dropin_dirs_added = False
     user_modified = False
 
     for diff in diffs:
@@ -366,49 +472,44 @@ def verify_choose_changes(
             continue
         norm_p = normalize_for_match(diff.path, os_name)
         if norm_p == norm_user:
-            user_modified = True
+            if diff.kind != DiffKind.REMOVED and diff.after is not None and diff.after.kind == EntryKind.FILE:
+                user_modified = True
+                continue
+            errors.extend(format_diff([diff]))
             continue
-        if profile == Profile.PROTECTED and _is_allowed_dropin_path(diff, norm_p, norm_dropin_dir, os_name):
-            if diff.after is not None and diff.after.kind == EntryKind.FILE:
+        if profile == Profile.PROTECTED:
+            if norm_p in (parent_dir, norm_dropin_dir):
+                if diff.kind == DiffKind.ADDED and diff.after is not None and diff.after.kind == EntryKind.DIR:
+                    dropin_dirs_added = True
+                    continue
+                errors.extend(format_diff([diff]))
+                continue
+            if _is_allowed_dropin_file(diff, norm_p, dropin_prefix, sep):
                 dropin_files.append(diff.path)
-            continue
+                continue
         errors.extend(format_diff([diff]))
+
+    if profile == Profile.PROTECTED:
+        for path, entry in after.items():
+            if normalize_for_match(path, os_name).startswith(dropin_prefix) and entry.kind != EntryKind.FILE:
+                errors.append(f"non-regular entry in drop-in directory: {path} type={entry.kind.value}")
 
     if errors:
         return ["changes outside ours and Claude Code settings:\n" + "\n".join(errors)]
+    if dropin_dirs_added and not dropin_files:
+        return ["drop-in directory created without any drop-in file"]
 
     total_entries = 0
-    if user_modified:
-        try:
-            actual_bytes = pathlib.Path(user_settings).read_bytes()
-        except OSError as err:
-            return [f"cannot read {user_settings}: {type(err).__name__}"]
-        count, errs = verify_user_claude_settings(seeded_bytes, actual_bytes, patterns, os_name)
-        if errs:
-            return [
-                f"{user_settings} (seeded sha256={sha256_bytes(seeded_bytes)}, "
-                f"actual sha256={sha256_bytes(actual_bytes)}): {'; '.join(errs)}"
-            ]
-        total_entries += count
-    elif profile == Profile.PROTECTED and dropin_files:
-        try:
-            actual_user = pathlib.Path(user_settings).read_bytes()
-        except OSError as err:
-            return [f"cannot read {user_settings}: {type(err).__name__}"]
-        if actual_user != seeded_bytes:
-            return [
-                f"{user_settings} changed in protected mode "
-                f"(seeded sha256={sha256_bytes(seeded_bytes)}, actual sha256={sha256_bytes(actual_user)})"
-            ]
-        for dropin_path in dropin_files:
-            try:
-                raw = pathlib.Path(dropin_path).read_bytes()
-            except OSError as err:
-                return [f"cannot read {dropin_path}: {type(err).__name__}"]
-            count, errs = verify_dropin_claude_settings(raw, patterns, os_name)
-            if errs:
-                return [f"{dropin_path} (sha256={sha256_bytes(raw)}): {'; '.join(errs)}"]
-            total_entries += count
+    user_count, user_errs = _validate_user_settings_file(user_settings, user_modified, seeded_bytes, patterns, os_name)
+    if user_errs:
+        return user_errs
+    total_entries += user_count
+
+    if profile == Profile.PROTECTED and dropin_files:
+        dropin_count, dropin_errs = _validate_dropin_files(dropin_dir, dropin_files, patterns, os_name)
+        if dropin_errs:
+            return dropin_errs
+        total_entries += dropin_count
 
     if total_entries == 0:
         return ["choose step wrote no Claude Code hook entries"]

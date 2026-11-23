@@ -93,7 +93,7 @@ jobs:
 
   summary:
     needs: [plan, install-smoke]
-    if: needs.plan.result == 'success' && (needs.install-smoke.result == 'success' || needs.install-smoke.result == 'skipped')
+    if: always() && !cancelled() && needs.plan.result == 'success' && (needs.install-smoke.result == 'success' || needs.install-smoke.result == 'skipped')
     name: summary
     runs-on: ubuntu-26.04
     timeout-minutes: 5

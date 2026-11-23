@@ -25,13 +25,14 @@ if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
 
 from claude_settings import verify_choose_changes
-from runner_exec import run_argv, run_step_command
+from runner_exec import CommandResult, run_argv, run_step_command
 from snapshot import (
     ERR_CONFIG,
     ERR_SNAPSHOT,
     OracleError,
     OsName,
     Profile,
+    SnapshotEntry,
     capture_snapshot,
     diff_snapshots,
     expand_path,
@@ -47,6 +48,15 @@ REQUIRED_CELL_KEYS = ("id", "runner", "profile", "build", "install", "choose", "
 CELL_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 DEFAULT_ROOTS_PATH = pathlib.Path(__file__).resolve().parent / "roots.toml"
 DEFAULT_FIXTURE_CELLS = pathlib.Path(__file__).resolve().parent / "fixtures" / "cells.toml"
+BUILD_FORBIDDEN_SUBSTRS = (";", "|", "&", ">", "<", "`", "$", "#", "(", ")")
+INTERPRETER_ALLOWED_FLAGS: dict[str, set[str]] = {
+    "python": {"-I", "-B", "-E", "-s", "-S", "-u"},
+    "python3": {"-I", "-B", "-E", "-s", "-S", "-u"},
+    "bash": {"-e", "-u", "-x", "-eu", "-ex", "-ux", "-eux"},
+    "sh": {"-e", "-u", "-x", "-eu", "-ex", "-ux", "-eux"},
+    "pwsh": {"-noprofile", "-noninteractive", "-file"},
+    "powershell": {"-noprofile", "-noninteractive", "-file"},
+}
 
 
 class StepName(enum.Enum):
@@ -85,20 +95,50 @@ class CellFailed:
 CellOutcome = CellPassed | CellFailed
 
 
+def _has_parent_traversal(token: str) -> bool:
+    cleaned = token.strip("'\"").replace("\\", "/")
+    return any(".." in pathlib.PurePosixPath(part).parts for part in cleaned.split("="))
+
+
+def _matches_allowed_prefix(token: str, allowed_prefixes: tuple[str, ...]) -> bool:
+    cleaned = token.strip("'\"").replace("\\", "/")
+    if cleaned.startswith("./"):
+        cleaned = cleaned[2:]
+    return any(cleaned.startswith(prefix) and len(cleaned) > len(prefix) for prefix in allowed_prefixes)
+
+
 def _validate_build_command(cmd: str, allowed_prefixes: tuple[str, ...]) -> bool:
-    if "\n" in cmd or "\r" in cmd:
+    if not cmd.strip() or any(ord(ch) < 32 or ord(ch) == 127 for ch in cmd):
+        return False
+    if any(bad in cmd for bad in BUILD_FORBIDDEN_SUBSTRS):
         return False
     try:
         tokens = shlex.split(cmd, posix=(os.name != "nt"))
     except ValueError:
         return False
-    for raw in tokens:
-        cleaned = raw.strip('"').replace("\\", "/")
-        if cleaned.startswith("./"):
-            cleaned = cleaned[2:]
-        if any(cleaned.startswith(prefix) for prefix in allowed_prefixes):
-            parts = pathlib.PurePosixPath(cleaned).parts
-            return ".." not in parts
+    if not tokens or any(_has_parent_traversal(tok) for tok in tokens):
+        return False
+
+    first = tokens[0].strip("'\"").replace("\\", "/")
+    if _matches_allowed_prefix(first, allowed_prefixes):
+        return True
+    if "/" in first:
+        return False
+    interp = first.lower().removesuffix(".exe")
+    allowed_flags = INTERPRETER_ALLOWED_FLAGS.get(interp)
+    if allowed_flags is None:
+        return False
+
+    idx = 1
+    while idx < len(tokens):
+        tok = tokens[idx].strip("'\"")
+        flag_key = tok.lower() if interp in ("pwsh", "powershell") else tok
+        if tok.startswith("-"):
+            if flag_key not in allowed_flags:
+                return False
+            idx += 1
+            continue
+        return _matches_allowed_prefix(tok, allowed_prefixes)
     return False
 
 
@@ -109,10 +149,14 @@ def load_cells(
     missing_ok: bool,
     allow_fixture_prefix: bool = False,
 ) -> list[CellSpec]:
-    if not smoke_path.exists():
+    if smoke_path.is_symlink():
+        raise OracleError(ERR_CONFIG, f"{smoke_path} must not be a symlink")
+    if not os.path.lexists(smoke_path):
         if missing_ok:
             return []
         raise OracleError(ERR_CONFIG, f"{smoke_path} does not exist")
+    if not smoke_path.is_file():
+        raise OracleError(ERR_CONFIG, f"{smoke_path} is not a regular file")
     try:
         with smoke_path.open("rb") as handle:
             data = tomllib.load(handle)
@@ -157,18 +201,11 @@ def load_cells(
             except ValueError:
                 raise OracleError(ERR_CONFIG, f"{smoke_path}: cell '{label}' invalid expected_fail_step") from None
 
-        specs.append(
-            CellSpec(
-                id=raw["id"],
-                runner=raw["runner"],
-                profile=profile,
-                build=raw["build"],
-                install=raw["install"],
-                choose=raw["choose"],
-                uninstall=raw["uninstall"],
-                expected_fail_step=expected,
-            )
-        )
+        specs.append(CellSpec(
+            id=raw["id"], runner=raw["runner"], profile=profile,
+            build=raw["build"], install=raw["install"], choose=raw["choose"],
+            uninstall=raw["uninstall"], expected_fail_step=expected,
+        ))
     return specs
 
 
@@ -238,10 +275,12 @@ def run_r4_cell(
     roots_cfg: Mapping[str, Any],
     repo_root: pathlib.Path,
     env: Mapping[str, str] | None = None,
+    override_roots: list[str] | None = None,
 ) -> CellOutcome:
     run_env = dict(os.environ if env is None else env)
     os_name = OsName(roots_cfg["runners"][cell.runner])
     timeout = int(roots_cfg["limits"]["step_timeout_seconds"])
+    needs_elevated = cell.profile == Profile.PROTECTED
     patterns = ours_patterns(roots_cfg, os_name, cell.profile, run_env)
     logs: list[str] = []
 
@@ -254,6 +293,12 @@ def run_r4_cell(
             logs.append(f"step {later.value}: NOT RUN")
         return CellFailed(step, reason, tuple(logs))
 
+    def run_cmd(cmd: str, *, elevated: bool = False) -> CommandResult:
+        return run_step_command(cmd, os_name, cell.profile, run_env, repo_root, timeout, elevated=elevated)
+
+    def snap() -> dict[str, SnapshotEntry]:
+        return capture_snapshot(roots_cfg, os_name, cell.profile, run_env, override_roots=override_roots)
+
     seed_src = repo_root / roots_cfg["limits"]["claude_seed_fixture"]
     try:
         seeded_bytes = seed_src.read_bytes()
@@ -264,32 +309,31 @@ def run_r4_cell(
     except OSError as err:
         return fail(StepName.SEED, f"cannot seed Claude settings: {type(err).__name__}")
 
-    snap_s0 = capture_snapshot(roots_cfg, os_name, cell.profile, run_env)
-    if run_step_command(cell.build, os_name, cell.profile, run_env, repo_root, timeout).returncode != 0:
+    snap_s0 = snap()
+    if run_cmd(cell.build).returncode != 0:
         return fail(StepName.INSTALL, "build exited non-zero")
-    inst_res = run_step_command(cell.install, os_name, cell.profile, run_env, repo_root, timeout)
+    inst_res = run_cmd(cell.install, elevated=needs_elevated)
     if inst_res.returncode != 0:
         return fail(StepName.INSTALL, f"install exited {inst_res.returncode}")
 
-    snap_s1 = capture_snapshot(roots_cfg, os_name, cell.profile, run_env)
+    snap_s1 = snap()
     bad_s1 = unexpected_diffs_outside_ours(diff_snapshots(snap_s0, snap_s1), snap_s1, patterns, os_name)
     if bad_s1:
         return fail(StepName.INSTALL, "changes outside ours:\n" + "\n".join(format_diff(bad_s1)))
     logs.append(f"step {StepName.INSTALL.value}: OK")
 
-    rerun_res = run_step_command(cell.install, os_name, cell.profile, run_env, repo_root, timeout)
+    rerun_res = run_cmd(cell.install, elevated=needs_elevated)
     if rerun_res.returncode != 0:
         return fail(StepName.INSTALL_RERUN, f"install re-run exited {rerun_res.returncode}")
-    snap_rerun = capture_snapshot(roots_cfg, os_name, cell.profile, run_env)
-    rerun_diffs = diff_snapshots(snap_s1, snap_rerun)
+    rerun_diffs = diff_snapshots(snap_s1, snap())
     if rerun_diffs:
         return fail(StepName.INSTALL_RERUN, "re-run not idempotent:\n" + "\n".join(format_diff(rerun_diffs)))
     logs.append(f"step {StepName.INSTALL_RERUN.value}: OK")
 
-    choose_res = run_step_command(cell.choose, os_name, cell.profile, run_env, repo_root, timeout)
+    choose_res = run_cmd(cell.choose, elevated=needs_elevated)
     if choose_res.returncode != 0:
         return fail(StepName.CHOOSE, f"choose exited {choose_res.returncode}")
-    snap_choose = capture_snapshot(roots_cfg, os_name, cell.profile, run_env)
+    snap_choose = snap()
     choose_errs = verify_choose_changes(snap_s1, snap_choose, roots_cfg, os_name, cell.profile, seeded_bytes, run_env)
     if choose_errs:
         return fail(StepName.CHOOSE, "; ".join(choose_errs))
@@ -299,22 +343,20 @@ def run_r4_cell(
     logs.append(f"step {StepName.CHOOSE.value}: OK")
 
     if cell.profile == Profile.USER:
-        elev_res = run_step_command(
-            cell.install, os_name, cell.profile, run_env, repo_root, timeout, elevated=True
-        )
+        elev_res = run_cmd(cell.install, elevated=True)
+        if os_name != OsName.WINDOWS and elev_res.stderr.lstrip().lower().startswith("sudo:"):
+            return fail(StepName.INSTALL_ELEVATED, "sudo -n failed before running user install")
         if elev_res.returncode == 0:
             return fail(StepName.INSTALL_ELEVATED, "elevated user install unexpectedly exited 0")
-        snap_elev = capture_snapshot(roots_cfg, os_name, cell.profile, run_env)
-        elev_diffs = diff_snapshots(snap_choose, snap_elev)
+        elev_diffs = diff_snapshots(snap_choose, snap())
         if elev_diffs:
             return fail(StepName.INSTALL_ELEVATED, "elevated install changed snapshot:\n" + "\n".join(format_diff(elev_diffs)))
         logs.append(f"step {StepName.INSTALL_ELEVATED.value}: OK")
 
-    uninst_res = run_step_command(cell.uninstall, os_name, cell.profile, run_env, repo_root, timeout)
+    uninst_res = run_cmd(cell.uninstall, elevated=needs_elevated)
     if uninst_res.returncode != 0:
         return fail(StepName.UNINSTALL, f"uninstall exited {uninst_res.returncode}")
-    snap_s2 = capture_snapshot(roots_cfg, os_name, cell.profile, run_env)
-    s2_diffs = diff_snapshots(snap_s0, snap_s2)
+    s2_diffs = diff_snapshots(snap_s0, snap())
     if s2_diffs:
         return fail(StepName.UNINSTALL, "post-uninstall snapshot differs from S0:\n" + "\n".join(format_diff(s2_diffs)))
     logs.append(f"step {StepName.UNINSTALL.value}: OK")
@@ -338,6 +380,45 @@ def isolated_env(home_dir: pathlib.Path, base_env: Mapping[str, str]) -> dict[st
     return env
 
 
+def _prepare_self_test_roots(
+    tmp_root: pathlib.Path,
+    os_name: OsName,
+    profile: Profile,
+    roots_cfg: Mapping[str, Any],
+    env: Mapping[str, str],
+) -> list[str]:
+    user_roots = [
+        expand_path(raw, os_name, env)
+        for raw in roots_cfg["os"][os_name.value][profile.value]["scan_roots"]
+        if raw.startswith(("~", "%LOCALAPPDATA%", "%APPDATA%"))
+    ]
+    synth_root = tmp_root / "synth_roots"
+    private_etc = synth_root / "private_etc"
+    private_etc.mkdir(parents=True, exist_ok=True)
+    (private_etc / "sample.conf").write_text("seed=1\n", encoding="utf-8")
+
+    etc_root = synth_root / "etc"
+    try:
+        etc_root.symlink_to(private_etc, target_is_directory=True)
+    except OSError:
+        etc_root.mkdir(parents=True, exist_ok=True)
+        (etc_root / "sample.conf").write_text("seed=1\n", encoding="utf-8")
+
+    usr_bin = synth_root / "usr" / "bin"
+    usr_bin.mkdir(parents=True, exist_ok=True)
+    (usr_bin / "tool").write_text("tool\n", encoding="utf-8")
+    try:
+        (usr_bin / "tool-link").symlink_to("tool")
+    except OSError:
+        pass
+
+    var_lib = synth_root / "var_lib" / "state"
+    var_lib.mkdir(parents=True, exist_ok=True)
+    (var_lib / "marker").write_text("ok\n", encoding="utf-8")
+
+    return [*user_roots, str(etc_root), str(synth_root / "usr"), str(synth_root / "var_lib")]
+
+
 def run_self_test(roots_cfg: Mapping[str, Any], fixtures_path: pathlib.Path, repo_root: pathlib.Path) -> int:
     cells = load_cells(fixtures_path, roots_cfg, missing_ok=False, allow_fixture_prefix=True)
     expected_count = int(roots_cfg["limits"]["self_test_cell_count"])
@@ -348,9 +429,12 @@ def run_self_test(roots_cfg: Mapping[str, Any], fixtures_path: pathlib.Path, rep
     for cell in cells:
         if cell.expected_fail_step is None:
             raise OracleError(ERR_SELF_TEST, f"fixture cell '{cell.id}' missing expected_fail_step")
+        os_name = OsName(roots_cfg["runners"][cell.runner])
         with tempfile.TemporaryDirectory() as tmp:
-            env = isolated_env(pathlib.Path(tmp) / "home", os.environ)
-            outcome = run_r4_cell(cell, roots_cfg, repo_root, env)
+            tmp_path = pathlib.Path(tmp)
+            env = isolated_env(tmp_path / "home", os.environ)
+            scan_roots = _prepare_self_test_roots(tmp_path, os_name, cell.profile, roots_cfg, env)
+            outcome = run_r4_cell(cell, roots_cfg, repo_root, env, override_roots=scan_roots)
         print(f"=== fixture cell: {cell.id} (expected fail at {cell.expected_fail_step.value}) ===")
         for line in outcome.step_log:
             print(line)
