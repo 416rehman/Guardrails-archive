@@ -11,7 +11,7 @@ Decision record: none yet
 
 To comment, write on issue #1757 of this repository; you need no account on any service other than the code host. A security fix under embargo (D-62) may change a public surface without an RFC; open a retroactive RFC when the fix is disclosed.
 
-This is revision 4. It reconciles revision 3 (reviewed at `533c30d` in round 3, whose dispositions sit on #1757) with accepted RFC 0007 (ADR-0038), RFC 0008 (ADR-0040), RFC 0009 (ADR-0041 and its #1982 constraint on #1757) and RFC 0010 (ADR-0044), with ADR-0045 (daemon OS calls and #2011's updates to design/03), with the planner ruling on #464 and macOS Protected endpoints (`/Library/Application Support/grdr/run/decide.sock`, resolving question 2), and with the round 3 findings `m1` to `m7` and seat 2's uninstall note. Where revision 3 and revision 4 differ, revision 4 is normative; section 16 tells each lead what to write back.
+This is revision 4, updated after round 4 `eval-review` on `f66eac1`. It reconciles revision 3 (reviewed at `533c30d` in round 3, whose dispositions sit on #1757) with accepted RFC 0007 (ADR-0038), RFC 0008 (ADR-0040), RFC 0009 (ADR-0041 and its #1982 constraint on #1757) and RFC 0010 (ADR-0044), with ADR-0045 (daemon OS calls and #2011's updates to design/03), with the planner ruling on #464 and macOS Protected endpoints (`/Library/Application Support/grdr/run/decide.sock`, resolving question 2), with the round 3 findings `m1` to `m7` and seat 2's uninstall note, and with round 4 `eval-review`'s finding on section 7's refusal declarations and decision-table syntax. Where revision 3 and revision 4 differ, revision 4 is normative; section 16 tells each lead what to write back.
 
 ## Summary
 Slice 0 adds the first public items to `grdr-wire`:
@@ -357,9 +357,15 @@ impl<L: Link> PendingPeer<L> {
         -> Result<(ServerConn<L>, Vec<u8>), FirstFrameError>;
 }
 pub fn check_path<R: PeerReader>(reader: &R, endpoint: &Endpoint) -> Result<PathCheck, Refusal>;
-#[non_exhaustive] pub enum PathCheck { Passed, NoPath }
-#[non_exhaustive] pub enum OpenError { Unreachable(LinkFault), Refused(Refusal) }
-#[non_exhaustive] pub enum FirstFrameError { Wire(WireError), Refused(Refusal) }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum PathCheck { Passed, NoPath }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum OpenError { Unreachable(LinkFault), Refused(Refusal) }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum FirstFrameError { Wire(WireError), Refused(Refusal) }
 pub struct EndpointIdentity { /* private */ }
 impl EndpointIdentity { pub fn server(&self) -> &Principal; pub fn tamper(&self) -> Tamper; }
 pub struct PeerIdentity { /* private */ }
@@ -370,8 +376,47 @@ impl PeerIdentity {
     pub fn integrity(&self) -> Option<IntegrityRid>;
     pub fn hold(&self) -> &ProcessHold;
 }
-#[non_exhaustive] pub enum Binding { Atomic, Confirmed }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Binding { Atomic, Confirmed }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum PathNode { Ancestor(u16), Socket }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ShapeFault { Symlink, NotDirectory, NotSocket, GroupWritable, OtherWritable }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum OwnerClass { Superuser, Caller, Expected, Other }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ServerFault { Principal { seen: OwnerClass }, NotTheService }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Evidence { Tamper, Configuration, Coverage, Transient }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Refusal {
+    PeerGone,
+    ClientReplaced,
+    PathChanged,
+    ServiceRestarting,
+    PathUnsafe { at: PathNode, fault: ShapeFault },
+    PathForeign { at: PathNode },
+    ServerForeign(ServerFault),
+    PeerUnverifiable(ReadFault),
+    ServerUnverifiable(ReadFault),
+}
+impl Refusal { pub fn evidence(&self) -> Evidence; }
+impl Coded for Refusal { fn code(&self) -> &'static Code; }
+impl LogSafe for Refusal { fn log_value(&self) -> LogValue<'_>; }
+impl Coded for OpenError { fn code(&self) -> &'static Code; }
+impl LogSafe for OpenError { fn log_value(&self) -> LogValue<'_>; }
+impl Coded for FirstFrameError { fn code(&self) -> &'static Code; }
+impl LogSafe for FirstFrameError { fn log_value(&self) -> LogValue<'_>; }
 ```
+`Refusal::evidence(&self)` is an exhaustive match in `grdr-wire::peer_auth` with no wildcard arm: `PathForeign { .. }` and `ServerForeign(_)` yield `Evidence::Tamper`; `PathUnsafe { .. }` yields `Evidence::Configuration`; `PeerUnverifiable(_)` and `ServerUnverifiable(_)` yield `Evidence::Coverage`; and `PeerGone`, `ClientReplaced`, `PathChanged` and `ServiceRestarting` yield `Evidence::Transient` (checked by unit tests for parity with `code().class()` in section 9, Rule 7). `Coded` (`grdr_schema::codes::Coded`) maps each `Refusal` variant to its `GRDR-PEER-*` code in section 9, `OpenError` and `FirstFrameError` forward `code()` to the carried `LinkFault`, `WireError` or `Refusal`, and all three implement `LogSafe` (`grdr_model::LogSafe`) by returning `LogValue::Code(*self.code())`.
+
 - **`open`, in order.**
   1. Read the caller, for a `Caller` owner.
   2. On a socket address, read the path and decide rows 2 to 5 below, before connecting. A stale socket another account left is therefore `PathForeign`, not `Unavailable`.
@@ -390,17 +435,19 @@ impl PeerIdentity {
 
 | # | Condition | Refusal | Evidence |
 |---|---|---|---|
-| 1 | A read fails | `PeerGone` for `Gone`, otherwise `ServerUnverifiable(fault)` | Transient, Coverage |
-| 2 | Any node on the path is a symlink | `PathUnsafe { at, Symlink }` | Configuration |
-| 3 | An ancestor is not a directory, or the socket is not a socket | `PathUnsafe { at, NotDirectory \| NotSocket }` | Configuration |
+| 1 | A read fails | `PeerGone` for `ReadFault::Gone`, otherwise `ServerUnverifiable(fault)` | Transient, Coverage |
+| 2 | Any node on the path is a symlink | `PathUnsafe { at, fault: ShapeFault::Symlink }` | Configuration |
+| 3 | An ancestor is not a directory, or the socket is not a socket | `PathUnsafe { at, fault: ShapeFault::NotDirectory \| ShapeFault::NotSocket }` | Configuration |
 | 4 | A node's owner is neither uid 0 nor the expected uid | `PathForeign { at }` | Tamper |
-| 5 | An ancestor is other-writable (a sticky bit does not admit it), or group-writable and not admitted | `PathUnsafe { at, OtherWritable \| GroupWritable }` | Configuration |
+| 5 | An ancestor is other-writable (a sticky bit does not admit it), or group-writable and not admitted | `PathUnsafe { at, fault: ShapeFault::OtherWritable \| ShapeFault::GroupWritable }` | Configuration |
 | 6 | Any node differs between the reads before and after connect | `PathChanged` | Transient |
 | 7 | `link.peer()` or `ServerObservation` arm disagrees with `endpoint.address()` (for example `PipeServer` on a client, `Socket` on a pipe endpoint, or `ServerObservation::Windows` on a socket) | `ServerUnverifiable(ReadFault::Unsupported)` | Coverage |
-| 8 | The server principal does not fit the expected principal | `ServerForeign(Principal { seen })` | Tamper |
-| 9 | Windows with a service: both readings are `Valid(p)` with the same `p`, and `p` is not the pipe's server pid | `ServerForeign(NotTheService)` | Tamper |
+| 8 | The server principal does not fit the expected principal | `ServerForeign(ServerFault::Principal { seen })` | Tamper |
+| 9 | Windows with a service: both readings are `Valid(p)` with the same `p`, and `p` is not the pipe's server pid | `ServerForeign(ServerFault::NotTheService)` | Tamper |
 | 10 | Windows with a service: the readings differ, or either is `NoValidPid` | `ServiceRestarting` | Transient |
 | 11 | Otherwise | `ClientConn` with the server principal and the endpoint's `tamper` | |
+
+In rows 2 to 5, `at: PathNode` is `PathNode::Ancestor(i)` (zero-based index `i` into `PathFacts::ancestors` from `/` down) or `PathNode::Socket`. In row 8, `seen: OwnerClass` classifies the observed principal relative to the expected principal and the caller (`Superuser`, `Caller`, `Expected`, or `Other`), keeping raw uids and SIDs off `Refusal`.
 
 Once row 8 passes, only a holder of the service's SID or of `SeRestorePrivilege`, both above the boundary, can own the pipe. A disagreement between the two readings is therefore a restart racing the check, not an attacker, and every upgrade that races a shim call stays Transient (M2).
 
@@ -417,7 +464,7 @@ What each system guarantees:
 
 | Observation | Condition, in order | Outcome | Evidence |
 |---|---|---|---|
-| any | the read fails | `PeerGone` for `Gone`, otherwise `PeerUnverifiable(fault)` | Transient, Coverage |
+| any | the read fails | `PeerGone` for `ReadFault::Gone`, otherwise `PeerUnverifiable(fault)` | Transient, Coverage |
 | any | `link.peer()` is `PipeClient`, or `link.peer()` and `ClientObservation` disagree in platform (`Socket` with `Windows`, or `PipeServer` with `Linux` or `Macos`) | `PeerUnverifiable(ReadFault::Unsupported)` | Coverage |
 | Linux `Kernel` | | `Atomic` | |
 | Linux `Opened` | `Exited` | `PeerGone` | Transient |
@@ -428,7 +475,7 @@ What each system guarantees:
 | Windows | `exited` | `PeerGone` | Transient |
 | | `created` is later than `connected`: the pid names a process that started after the stamp | `ClientReplaced` | Transient |
 | | otherwise | `Confirmed`, `AwaitsMessage` | |
-| first frame, `AwaitsMessage` only | `message_identity` fails | `PeerUnverifiable(fault)`, or `PeerGone` for `Gone` | Coverage, Transient |
+| first frame, `AwaitsMessage` only | `message_identity` fails | `PeerUnverifiable(fault)`, or `PeerGone` for `ReadFault::Gone` | Coverage, Transient |
 | | its SID or integrity level differs from the pending identity's | `ClientReplaced` | Transient |
 
 Every server-side refusal closes the connection, leaving the client to fall back to its table path. The refusal reflects a client that left, a pid that now names another process, or a read that failed, so the client gains nothing from it and none is Tamper evidence. `grdr-daemon` counts consecutive server-side `Transient` refusals per endpoint without an intervening passing verification (`grdr_daemon_peer_transient_refusals`) and raises `peer-unverifiable` once the streak exceeds `limits.toml`'s `endpoint.transient-refusal-threshold` (round 3 m4). `PIPE_REJECT_REMOTE_CLIENTS` refuses the local-SMB route by which a client pid can be spoofed, so on Windows the first-frame check is defence in depth.
@@ -497,7 +544,7 @@ In standalone use, a solo developer finds tamper findings in `{cli} doctor` and 
 
 The table path is the shim's fail-safe table (design/07 section 5; D-14); this RFC adds no other Mode.
 
-`grdr doctor` derives the failing path from `endpoint.address()` and the node index `at`; a refusal never carries a path (seat 6). It shows the path unless the path lies under another account's home or runtime directory, identified from the per-OS platform path tables of design/03 section 9 together with the OS local account database rather than literal prefixes (structure rule S7) (round 3 m6). In that case it says "a directory owned by another account", and the detail stays in the privileged audit log. So every system path, which is every Protected endpoint, is shown to an administrator (seat 2). A shown path is a typed `{path :grdr:path}` argument rendered in a left-to-right isolate (UX6). A name that is not valid UTF-8 (Unix) or that holds an unpaired surrogate (Windows) is shown escaped, with a copy action that returns the exact bytes (seat 9).
+`grdr doctor` derives the failing path from `endpoint.address()` and `at: PathNode` (`PathNode::Ancestor(i)` or `PathNode::Socket`); a refusal never carries a path (seat 6). It shows the path unless the path lies under another account's home or runtime directory, identified from the per-OS platform path tables of design/03 section 9 together with the OS local account database rather than literal prefixes (structure rule S7) (round 3 m6). In that case it says "a directory owned by another account", and the detail stays in the privileged audit log. So every system path, which is every Protected endpoint, is shown to an administrator (seat 2). A shown path is a typed `{path :grdr:path}` argument rendered in a left-to-right isolate (UX6). A name that is not valid UTF-8 (Unix) or that holds an unpaired surrogate (Windows) is shown escaped, with a copy action that returns the exact bytes (seat 9).
 
 The daemon records `Binding` and the endpoint's `tamper` on the session's connection fact (#1536, #25), so a later rule can match a session reached under a weaker binding.
 
@@ -591,7 +638,7 @@ The compile sketch posted on #1757 covers revision 3, in three parts:
   - every server row, including a status read that fails (Coverage), a pid that names another uid (Transient), and the first-frame identity check: a mismatch, a lower integrity level, and a read that fails, which is refused and never skipped;
   - an unset runtime directory (`USER_CONTEXT_MISSING`);
   - a boundary timeout that leaves a connection usable, and `FrameTooLarge` breaking it.
-- **Revision 4 delta.** Relative to that revision 3 sketch, revision 4 removes `PendingPeer::identity` (`pending.identity()` joins `f17` as `E0599`, round 3 m2), enforces `PeerRef` and observation arm matching in `open` and `accept` (round 3 m1), notes `OpenAsSelf = TRUE` in the Windows reader's `message_identity` contract (round 3 m3), aligns `limits.toml` row names with RFC 0007 and adds `endpoint.transient-refusal-threshold` (round 3 m4), and takes `Coded` from `grdr-schema` and `Monotonic`, `Timestamp`, `Clock`, `LogSafe`, `InstallProfile` and `Tamper` from RFC 0008 and RFC 0009. The revision 3 forgery cases `f01` to `f21` and `G2` to `G2c` stay unchanged in shape:
+- **Revision 4 delta.** Relative to that revision 3 sketch, revision 4 removes `PendingPeer::identity` (`pending.identity()` joins `f17` as `E0599`, round 3 m2), enforces `PeerRef` and observation arm matching in `open` and `accept` (round 3 m1), notes `OpenAsSelf = TRUE` in the Windows reader's `message_identity` contract (round 3 m3), aligns `limits.toml` row names with RFC 0007 and adds `endpoint.transient-refusal-threshold` (round 3 m4), moves `Refusal::evidence(&self)` from the sketch's `REGISTRY` lookup to an exhaustive match in `grdr-wire::peer_auth` with parity tests against `code().class()` (Rule 7), implements `Coded` and `LogSafe` on `FirstFrameError` alongside `OpenError` and `Refusal` (using RFC 0007's `code()` and RFC 0009's `log_value()`), and takes `Coded` from `grdr-schema` and `Monotonic`, `Timestamp`, `Clock`, `LogSafe`, `InstallProfile` and `Tamper` from RFC 0008 and RFC 0009. The revision 3 forgery cases `f01` to `f21` and `G2` to `G2c` stay unchanged in shape:
 
 | # | Attempt | Result |
 |---|---|---|
@@ -782,7 +829,7 @@ Downstream:
    - OpenSSH's `safe_path` source, whose page was truncated, so the ancestor walk rests on the rename argument of section 7.
    - Whether a service running as a virtual account can set the pipe owner to its per-service SID, and whether the pipe file system keeps the owner per pipe or per instance. #684's runner case settles both.
    - The Linux `fdinfo` pid across pid namespaces. #375's case runs the reader inside a child pid namespace.
-   - A full re-run of the external compile-sketch harness (`#1757` comments `7056002171`, `7056002529`, `7056002830`) after revision 4's `m1` to `m4` and RFC 0007 to 0009 updates.
+   - A full re-run of the external compile-sketch harness (`#1757` comments `7056002171`, `7056002529`, `7056002830`) after revision 4's `m1` to `m4` (`PeerRef` and observation arm enforcement, `PendingPeer::identity` removal, `OpenAsSelf = TRUE`, and `limits.toml` alignment), `FirstFrameError` `Coded` and `LogSafe` impls, exhaustive `Refusal::evidence()` match replacing `REGISTRY`, and RFC 0007 to 0009 trait-signature updates.
 
    The round 1 evaluator confirmed the unix(7) and socket(7) facts and the effective-uid fact.
 
@@ -811,7 +858,7 @@ Round 3, on `533c30d` (revision 3):
 - `eval-architecture`: pass, seven minors (`m1` to `m7`). https://github.com/416rehman/Guardrails/issues/1757#issuecomment-7056170331
 - Seat 2 (IT admin): none blocking (asks to confirm uninstall ownership). https://github.com/416rehman/Guardrails/issues/1757#issuecomment-7056179378
 
-Round 4: pending, on this revision (revision 4), under ADR-0043 (`eval-review` and `eval-security`), answering `m1` to `m7`, seat 2's uninstall note, ADR-0045, the planner ruling on #464 and macOS Protected endpoints (`/Library/Application Support/grdr/run/decide.sock`), and RFC 0007 to 0010.
+Round 4: `eval-review` on `f66eac1` returned one major finding (omitted Rust declarations in section 7 for `PathNode`, `ShapeFault`, `OwnerClass`, `ServerFault`, `Evidence`, `Refusal` and `Refusal::evidence()`, decision-table shorthand `PathUnsafe` and `ServerForeign(Principal { seen })`, and revision 4 delta alignment); re-review pending on this updated revision 4 under ADR-0043 (`eval-review` and `eval-security`), answering `m1` to `m7`, seat 2's uninstall note, ADR-0045, the planner ruling on #464 and macOS Protected endpoints (`/Library/Application Support/grdr/run/decide.sock`), RFC 0007 to 0010, and round 4's finding.
 
 ## Decision
 Pending.
