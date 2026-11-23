@@ -68,6 +68,11 @@ programs/grdr-server/src/detect/**
 crates/grdr-ffi/**
 crates/grdr-fastpath-ffi/**
 
+# Wasm boundary exports and engine bundle digest
+crates/grdr-wasm/**
+crates/grdr-core/src/engine/bundle_sha256.rs
+crates/grdr-core/src/engine/bundle_sha256/**
+
 # Core security bounds, CI workflow definitions, and dependency licence/ban policies
 limits.toml
 security/trust-core.paths
