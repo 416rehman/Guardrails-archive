@@ -4,12 +4,13 @@ OpenAI Codex and ChatGPT sessions read `AGENTS.md` automatically at repository s
 for provider-specific execution rules.
 
 ## Codex and ChatGPT specifics
-- Model routing: read `.agents/models.toml` (`[providers.openai]`).
-  - `architect` and `high` (`tier:high` or `trust-core`): `gpt-5.4`.
-  - `standard` and `fast`: `gpt-5.4-mini`.
-  - Cross-model review (`D-63`): for `tier:high` or `trust-core`, satisfy `distinct_models = 2` either
-    across providers (for example Codex/ChatGPT plus Claude or Gemini) or across distinct models, and
-    record `Provider:` and `Model:` in every evaluator verdict.
+- Model routing and lean review (ADR-0043): read `.agents/models.toml` (`[providers.openai]`) and
+  `.claude/risk-tiers.toml`:
+  - `architect` and `high` (`eval-security`, complex `trust-core`): `gpt-5.4`.
+  - `standard` and `fast` (`eval-review`, normal implementation): `gpt-5.4-mini`.
+  - Evaluators (`0 / 1 / 2` by tier, CI-first, max 2 rounds): skip for green docs/tests (`low`), run
+    `eval-review` alone for `medium`, and run `eval-review` + `eval-security` on 2 distinct models or
+    providers for `tier:high` / `trust-core` (`Provider:` and `Model:` in every verdict, D-63).
 - Skills and roles: read `.claude/agents/<role>.md` for role duties and `.claude/skills/<name>/SKILL.md`
   for procedures (`grdr-work-issue`, `grdr-build`, `grdr-start-item`, `grdr-structure`, `grdr-verify`,
   `grdr-handoff`, `grdr-evaluate`, `cleanup`).

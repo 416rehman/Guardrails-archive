@@ -15,13 +15,14 @@
     enforcing the shared `.claude/hooks/docs-check.mjs` rules: no direct push to `main`, branches named
     `issue/<n>-<slug>`, every non-exempt PR targeting an issue with the issue name in branch and PR, one
     open PR per issue, `Docs:` line when code changes, and `[release_note]` when closing an issue.
-- Model routing: read `.agents/models.toml` (`[providers.google]`).
-  - `architect` (`chief-architect`): `Gemini 4 Neon` (subagent `Model: "pro"`).
-  - `high` (`tier:high` or `trust-core`): `Gemini 4 Neon` (subagent `Model: "pro"` or `"inherit"`).
-  - `standard`: `Gemini 4 Carbon` (`"inherit"`), `fast`: `"flash"`.
-  - Cross-model review (`D-63`): for `tier:high` or `trust-core`, satisfy `distinct_models = 2` either
-    across providers (for example Gemini plus Claude or Codex/ChatGPT) or across distinct model tiers, and
-    record `Provider:` and `Model:` in every evaluator verdict.
+- Model routing and lean review (ADR-0043): read `.agents/models.toml` (`[providers.google]`) and
+  `.claude/risk-tiers.toml`:
+  - `architect` (`chief-architect`): `Gemini 4 Neon` (`pro`).
+  - `high` (`eval-security`, complex `trust-core`): `Gemini 4 Neon` (`pro`).
+  - `standard` (normal implementation, `eval-review`): `Gemini 4 Carbon` (`inherit`); `fast`: `flash`.
+  - Evaluators (`0 / 1 / 2` by tier, CI-first, max 2 rounds): skip for green docs/tests (`low`), spawn
+    `eval-review` alone for `medium`, and spawn `eval-review` + `eval-security` on 2 distinct models or
+    providers for `tier:high` / `trust-core` (`Provider:` and `Model:` in every verdict, D-63).
 - Worktrees and environment:
   - Isolate each subagent writer or evaluator in its own git worktree under `.agent/worktrees/` (gitignored),
     never sharing a mutable working tree across concurrent writers and never editing `.claude/worktrees/`.

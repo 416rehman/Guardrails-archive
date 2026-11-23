@@ -6,10 +6,10 @@ Loonaro. Code namespace `grdr`. This file is a map. Follow the links; the answer
 ## How work happens
 Work items are GitHub issues of the repository `GH_REPO` names. A session (Claude Code via `CLAUDE.md`,
 Gemini/Antigravity via `GEMINI.md` and `.agents/`, or Codex/ChatGPT via `CODEX.md`) asked to work an
-issue follows skill `grdr-work-issue`: it spawns the agents in `.claude/agents` (a lead for a missing
-spec, the implementer, then the evaluators the tier calls for) using model tiers from
-`.agents/models.toml`, passes their results between them, and squash-merges the pull request. Each agent
-ends by returning its report (skill `grdr-handoff`) to that session.
+issue follows skill `grdr-work-issue` (ADR-0043): it uses at most 0, 1, or 2 lean evaluators
+(`eval-review`, plus `eval-security` for `tier:high` or `trust-core`), relies on green CI on the head
+commit instead of re-running checks, caps review at 2 rounds, and squash-merges the pull request. Each
+agent returns the compact report of skill `grdr-handoff`.
 
 ## Start of every agent run
 1. `git status`, `git log --oneline -5`. Your issue `#<n>` is in your prompt:
@@ -48,14 +48,13 @@ ends by returning its report (skill `grdr-handoff`) to that session.
 - Gate configuration (`.claude/settings.json`, `.agents/`, `.github/`, lint and deny configuration,
   `security/`, `supply-chain/`) changes only in an issue whose write set names it, worked by
   `lead-agent-kit` or the chief architect.
-- Trust-core paths (`security/trust-core.paths`) need `eval-security`, `eval-adversarial`
-  and two passing evaluators on different models (high tier; D-63, owner instruction 7), using
-  `.agents/models.toml` (two providers or two distinct model tiers).
+- Trust-core paths (`security/trust-core.paths`) and high-tier changes need `eval-review` and
+  `eval-security` on two distinct models or providers (high tier; D-63, ADR-0042, ADR-0043).
 
 ## Docs (design/34)
 Docs are kept up to date in the same pull request as the change. `.claude/hooks/docs-check.mjs`
-and the `docs` CI job check the rules marked (checked); `eval-docs` judges every pull request
-against all of them.
+and the `docs` CI job check the rules marked (checked); `eval-review` checks docs against `design/34`
+when invoked.
 - Every change that alters behaviour, an interface, a configuration key, a CLI command or a
   design decision updates its docs: the design section it implements (`docs/design/NN`) when
   the built behaviour differs from or refines it, and the docs site for anything a user or
